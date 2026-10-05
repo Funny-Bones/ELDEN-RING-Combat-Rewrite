@@ -668,7 +668,7 @@ fn stepping_off_a_ledge_falls_and_lands_with_the_fall_landing() {
     assert_eq!(id(&w), Some(ActionId::LandFall));
     assert_eq!(w.player.pos.y, 0.0);
     let def = ActionId::LandFall.def();
-    assert_eq!((def.source, def.total, def.cancel_move), ("a000_029020", 17.0, 7.0));
+    assert_eq!((def.source, def.total, def.cancel_move), ("a000_202300", 21.0, 15.0));
 }
 
 #[test]

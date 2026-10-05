@@ -42,9 +42,9 @@ EXTRA = [
     ("a00", 320000), ("a00", 320001), ("a00", 320002), ("a00", 320003),  # crouch walk
     ("a00", 320100), ("a00", 320101), ("a00", 320102), ("a00", 320103),  # crouch run
     ("a00", 22100),    # run stop
-    ("a00", 202100),   # airborne loop after a jump
-    ("a00", 29000),    # start of a fall off a ledge
-    ("a00", 29100),    # fall loop
+    ("a00", 202040),   # airborne loop after a jump
+    ("a00", 202200),   # start of a fall off a ledge
+    ("a00", 4020),     # fall loop
     ("a00", 17002),    # death
 ]
 

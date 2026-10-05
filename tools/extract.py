@@ -69,12 +69,13 @@ EVENT_BLEND = 16
 BASE = [
     ("Backstep", "a00", 27000),
     ("SprintStop", "a00", 22200),
-    ("LandLight", "a00", 202110),
+    ("LandLight", "a00", 202100),
     ("LandRun", "a00", 202127),
     ("LandSprint", "a00", 202125),
-    ("LandHeavy", "a00", 202130),
-    # Landing from a plain fall, as opposed to from a jump.
-    ("LandFall", "a00", 29020),
+    # Landing from a fall rather than a jump: a deep crouch, or from high up
+    # a sprawl the character has to get up from.
+    ("LandFall", "a00", 202300),
+    ("LandHeavy", "a00", 202310),
 ]
 for _load, _base in (("Light", 27100), ("Medium", 27110), ("Heavy", 27120)):
     for _i, _d in enumerate(("Front", "Back", "Left", "Right")):

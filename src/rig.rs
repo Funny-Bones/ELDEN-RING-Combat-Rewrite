@@ -23,11 +23,11 @@ const CROUCH_IDLE: u32 = 300000;
 const CROUCH_WALK: u32 = 320000;
 const CROUCH_RUN: u32 = 320100;
 /// Airborne after a jump's arc has played out.
-const JUMP_LOOP: &str = "a000_202100";
+const JUMP_LOOP: &str = "a000_202040";
 /// Stepping off a ledge, then the loop it settles into.
-const FALL_START: &str = "a000_029000";
-const FALL_LOOP: &str = "a000_029100";
-const FALL_START_FRAMES: f32 = 5.0;
+const FALL_START: &str = "a000_202200";
+const FALL_LOOP: &str = "a000_004020";
+const FALL_START_FRAMES: f32 = 7.0;
 
 /// Tallest step the feet are fitted to; anything bigger is a ledge.
 const FOOT_REACH: f32 = 0.5;
@@ -480,8 +480,14 @@ pub fn animate(
         let to_target = target - h;
         let reach = to_target.length().clamp((thigh - shin).abs() + 1e-3, thigh + shin - 1e-3);
         let along = to_target.normalize_or(Vec3::NEG_Y);
-        // Keep the knee bending the way the animation had it.
-        let bend = ((k - h) - along * (k - h).dot(along)).normalize_or(Vec3::Z);
+        // Keep the knee bending the way the animation had it: sideways of
+        // the animated hip-to-foot line. A nearly straight leg has almost no
+        // bend to read, so it is biased forward, where knees go; without that
+        // the direction is noise and the thigh can swing out to the side.
+        let axis = (f - h).normalize_or(Vec3::NEG_Y);
+        let animated = (k - h) - axis * (k - h).dot(axis);
+        let hint = animated + Vec3::Z * 0.08;
+        let bend = (hint - along * hint.dot(along)).normalize_or(Vec3::Z);
         let x = (thigh * thigh - shin * shin + reach * reach) / (2.0 * reach);
         let new_knee = h + along * x + bend * (thigh * thigh - x * x).max(0.0).sqrt();
         let new_foot = h + along * reach;
