@@ -702,3 +702,44 @@ fn a_jump_off_a_ledge_turns_into_a_fall() {
     }
     assert!(action(&w).is_none());
 }
+
+#[test]
+fn light_after_an_opener_continues_with_the_second_swing() {
+    use AttackKind::*;
+    // Mash light from a sprint, one- and two-handed, and record the chain.
+    for two_hand in [false, true] {
+        let mut w = world();
+        if two_hand {
+            w.step(&Input { two_hand_right: true, ..idle() });
+        }
+        w.step(&Input { dodge: DOWN, ..forward() });
+        run(&mut w, Input { dodge: HELD, ..forward() }, 40);
+        let mut seen = Vec::new();
+        for _ in 0..400 {
+            w.step(&Input { dodge: HELD, light: DOWN, ..forward() });
+            w.player.stamina = MAX_STAMINA;
+            if let Some(ActionId::Attack(moveset, kind)) = id(&w) {
+                assert_eq!(moveset.two_hand, two_hand);
+                if seen.last() != Some(&kind) {
+                    seen.push(kind);
+                }
+            }
+        }
+        assert_eq!(&seen[..3], &[RunLight, Light2, Light3]);
+    }
+
+    // The same goes for the rolling attack.
+    let mut w = world();
+    tap_dodge(&mut w, forward());
+    let mut seen = Vec::new();
+    for _ in 0..300 {
+        w.step(&Input { light: DOWN, ..idle() });
+        w.player.stamina = MAX_STAMINA;
+        if let Some(ActionId::Attack(_, kind)) = id(&w) {
+            if seen.last() != Some(&kind) {
+                seen.push(kind);
+            }
+        }
+    }
+    assert_eq!(&seen[..2], &[RollAttack, Light2]);
+}

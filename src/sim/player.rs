@@ -815,6 +815,9 @@ impl Player {
     fn next_light(&self, from: ActionId) -> Option<ActionId> {
         use AttackKind::*;
         match from {
+            // The game's script sends a light press after any of these openers
+            // into the *second* swing of the chain, not the first.
+            ActionId::Attack(_, RunLight | RollAttack | BackstepAttack | CrouchAttack) => self.pick(&[Light2, Light1]),
             ActionId::Attack(_, kind) => {
                 let next = kind.next_light().unwrap_or(Light1);
                 // Chains differ in length per weapon; past the end they start over.
