@@ -22,12 +22,13 @@ const SPRINT: u32 = 20200;
 const CROUCH_IDLE: u32 = 300000;
 const CROUCH_WALK: u32 = 320000;
 const CROUCH_RUN: u32 = 320100;
-/// Airborne after a jump's arc has played out.
-const JUMP_LOOP: &str = "a000_202040";
-/// Stepping off a ledge, then the loop it settles into.
-const FALL_START: &str = "a000_202200";
-const FALL_LOOP: &str = "a000_004020";
-const FALL_START_FRAMES: f32 = 7.0;
+/// In the air with nothing else going on: after a jump's arc has played out,
+/// and for the body of any fall. The game's plain fall-loop entries play
+/// this same clip.
+const AIR_LOOP: &str = "a000_202040";
+/// Stepping off a ledge, before settling into the loop.
+const FALL_START: &str = "a000_004000";
+const FALL_START_FRAMES: f32 = 24.0;
 
 /// Tallest step the feet are fitted to; anything bigger is a ledge.
 const FOOT_REACH: f32 = 0.5;
@@ -284,12 +285,9 @@ fn playing(p: &Player, rig: &mut Rig, clips: &Clips, time: f32, dt: f32, ahead: 
     let stance = stance(p);
     match p.state {
         State::Dead { t } => (DEATH.to_string(), t + ahead, false),
-        State::Air(a) if !a.falling() => (JUMP_LOOP.to_string(), time * ANIM_FPS, true),
-        // A jump that turns into a drop goes straight to the loop: the fall
-        // start is the step off a ledge, which a jump has already done.
-        State::Air(a) if a.jumped => (FALL_LOOP.to_string(), a.f - JUMP_BECOMES_FALL + ahead, true),
-        State::Air(a) if a.f < FALL_START_FRAMES => (FALL_START.to_string(), a.f + ahead, false),
-        State::Air(a) => (FALL_LOOP.to_string(), a.f - FALL_START_FRAMES + ahead, true),
+        // Only a walk off a ledge has a fall start; a jump is already airborne.
+        State::Air(a) if !a.jumped && a.f < FALL_START_FRAMES => (FALL_START.to_string(), a.f + ahead, false),
+        State::Air(_) => (AIR_LOOP.to_string(), time * ANIM_FPS, true),
         State::Act(a) => (a.id.def().source.to_string(), a.f + ahead, false),
         State::Ground => {
             if p.speed < 0.05 {
