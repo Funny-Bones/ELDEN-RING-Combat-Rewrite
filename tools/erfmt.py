@@ -4,14 +4,15 @@ import ctypes
 import struct
 from pathlib import Path
 
-GAME_DIR = Path(r"D:\Steam\steamapps\common\ELDEN RING\Game")
+import paths
+
 _oodle = None
 
 
 def _oodle_decompress(data: bytes, raw_size: int) -> bytes:
     global _oodle
     if _oodle is None:
-        _oodle = ctypes.WinDLL(str(GAME_DIR / "oo2core_6_win64.dll"))
+        _oodle = ctypes.WinDLL(str(paths.game_dir() / "oo2core_6_win64.dll"))
         _oodle.OodleLZ_Decompress.restype = ctypes.c_int64
         _oodle.OodleLZ_Decompress.argtypes = [
             ctypes.c_char_p, ctypes.c_int64, ctypes.c_char_p, ctypes.c_int64,

@@ -14,11 +14,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import hkanim
+import paths
 from erfmt import open_bnd
 from extract import BASE, REACTIONS, Source, blend_frames, gather
 from skel import fk, qrot
 
-SRC = Path(r"C:\Users\Mateus\Desktop\er files") / "chr"
+SRC = paths.er_files() / "chr"
 OUT = Path(__file__).parent.parent / "assets" / "player_anims.bin"
 PACKS = ("c0000_a00_hi", "c0000_a00_lo", "c0000_a00_md", "c0000_a0x", "c0000_a1x", "c0000_a2x", "c0000_a3x", "c0000_a4x")
 

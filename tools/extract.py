@@ -1,6 +1,7 @@
 """Generates src/sim/extracted.rs from unpacked Elden Ring files.
 
-Inputs (unpacked by the user with UXM / WitchyBND):
+Inputs (unpacked by the user with UXM / WitchyBND, found through the
+ER_FILES and ER_GAME_DIR environment variables; see tools/paths.py):
   chr/c0000.anibnd.dcx          animation events (TAE)
   chr/c0000_a00_hi.anibnd.dcx   base-movement animations (root motion)
   chr/c0000_a{2,3,4}x.anibnd.dcx weapon-moveset animations (root motion)
@@ -16,10 +17,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 import hkanim
 import hkx
 import param
+import paths
 import tae
 from erfmt import open_bnd
 
-SRC = Path(r"C:\Users\Mateus\Desktop\er files")
+SRC = paths.er_files()
 OUT = Path(__file__).parent.parent / "src" / "sim" / "extracted.rs"
 NEVER = 9999.0
 PACKS = ("c0000_a00_hi", "c0000_a2x", "c0000_a3x", "c0000_a4x")
