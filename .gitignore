@@ -1,6 +1,8 @@
 /target
 __pycache__/
-# Baked from the game's own animation files: regenerate locally, do not redistribute.
+# Generated from the game's own files by tools/setup.py: regenerate locally,
+# do not redistribute.
 /assets/player_anims.bin
+/src/sim/extracted.rs
 # Default location for unpacked game files (see README).
 /er-files/

@@ -8,8 +8,9 @@ timings, movement and animations are read from the game's own files rather
 than tuned by eye.
 
 This is a fan project for study. It is not affiliated with or endorsed by
-FromSoftware or Bandai Namco. No game assets are in this repository; to run
-it you need your own copy of the game.
+FromSoftware or Bandai Namco. Nothing from the game is in this repository,
+only code: to build and run it you need your own copy of the game, from which
+the tools here generate the data.
 
 ## What is in it
 
@@ -79,8 +80,11 @@ the dummy hostile, `F1` toggles the i-frame tint, `H` toggles the help overlay,
 You need Rust, Python 3.10 or newer, and Windows (the tools load the game's
 own decompression DLL).
 
-The repository contains the generated action table, so it compiles as-is. It
-will not run until you bake the animations from your own game files.
+Two generated files are deliberately not in the repository, because they are
+derived from the game: the action table (`src/sim/extracted.rs`) and the baked
+animations (`assets/player_anims.bin`). The project will not compile or run
+until you generate them from your own game files. That is one command once
+the files are unpacked.
 
 1. **Unpack the game files.** The archives are encrypted, so this step uses
    community tools:
@@ -106,10 +110,10 @@ will not run until you bake the animations from your own game files.
    $env:ER_GAME_DIR = "D:\Steam\steamapps\common\ELDEN RING\Game"
    ```
 
-3. **Bake the animations** (about 13 MB, written to `assets/`):
+3. **Generate the data** (takes well under a minute):
 
    ```bash
-   python tools/bake_anims.py
+   python tools/setup.py
    ```
 
 4. **Run it** from the project folder:
@@ -118,11 +122,16 @@ will not run until you bake the animations from your own game files.
    cargo run
    ```
 
-To regenerate the action table as well (after changing which weapons or
-actions are extracted):
+After that the game files are no longer needed to run the sandbox, only to
+regenerate the data. `setup.py` just runs the two generators, which can also
+be run on their own after changing which weapons, actions or clips are used:
 
 ```bash
 python tools/extract.py
+```
+
+```bash
+python tools/bake_anims.py
 ```
 
 ## Layout
@@ -130,17 +139,19 @@ python tools/extract.py
 | Path | What it is |
 |---|---|
 | `src/sim/` | The whole game as a pure 60 Hz state machine, with no engine types. |
-| `src/sim/extracted.rs` | Generated action table. Do not edit by hand. |
+| `src/sim/extracted.rs` | Generated action table. Not in the repository; do not edit by hand. |
 | `src/sim/data.rs` | Action types, plus every value that is still an estimate. |
 | `src/sim/tests.rs` | Behaviour tests; run with `cargo test`. |
 | `src/rig.rs`, `src/anim.rs` | The rig, and loading and playing the baked animations. |
 | `src/camera.rs`, `src/input.rs`, `src/hud.rs`, `src/view.rs` | Camera, bindings, HUD, arena and dummy. |
+| `tools/setup.py` | Runs both generators below. |
 | `tools/extract.py` | Reads timings, root motion and params; writes `extracted.rs`. |
 | `tools/bake_anims.py` | Decodes the skeletal animations; writes `assets/player_anims.bin`. |
 | `tools/*.py` (others) | Readers for the game's container, event, animation and param formats. |
 
 ## A note on the data
 
-`src/sim/extracted.rs` and the baked animation file are derived from the
-game's files. The baked animations are deliberately not committed. If you
-publish a fork, consider whether you want to distribute either.
+`src/sim/extracted.rs` and `assets/player_anims.bin` are derived from the
+game's files, so neither is committed and both are in `.gitignore`. Please
+keep it that way in forks: share the code, and let each person generate the
+data from the copy of the game they own.
