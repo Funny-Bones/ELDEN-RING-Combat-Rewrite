@@ -21,7 +21,7 @@ from skel import fk, qrot
 
 SRC = paths.er_files() / "chr"
 OUT = Path(__file__).parent.parent / "assets" / "player_anims.bin"
-PACKS = ("c0000_a00_hi", "c0000_a00_lo", "c0000_a00_md", "c0000_a0x", "c0000_a1x", "c0000_a2x", "c0000_a3x", "c0000_a4x")
+PACKS = ("c0000_a00_hi", "c0000_a00_lo", "c0000_a00_md", "c0000_a0x", "c0000_a1x", "c0000_a2x", "c0000_a3x", "c0000_a4x", "c0000_a5x")
 
 JOINTS = [
     "Pelvis", "Spine", "Spine1", "Spine2", "Neck", "Head",

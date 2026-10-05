@@ -64,7 +64,7 @@ enum Stuff {
 
 /// Stand-in weapon models, in `WEAPONS` order: boxes as (size, centre) in the
 /// weapon bone's frame, where +Y runs from the grip toward the tip.
-const WEAPON_PARTS: [&[([f32; 3], [f32; 3], Stuff)]; 10] = [
+const WEAPON_PARTS: &[&[([f32; 3], [f32; 3], Stuff)]] = &[
     // Dagger
     &[([0.03, 0.13, 0.03], [0.0, -0.02, 0.0], Stuff::Wood), ([0.1, 0.02, 0.03], [0.0, 0.05, 0.0], Stuff::Steel), ([0.04, 0.33, 0.012], [0.0, 0.22, 0.0], Stuff::Steel)],
     // Longsword
@@ -85,6 +85,34 @@ const WEAPON_PARTS: [&[([f32; 3], [f32; 3], Stuff)]; 10] = [
     &[([0.03, 1.8, 0.03], [0.0, 0.5, 0.0], Stuff::Wood), ([0.05, 0.28, 0.014], [0.0, 1.52, 0.0], Stuff::Steel)],
     // Halberd
     &[([0.035, 2.0, 0.035], [0.0, 0.55, 0.0], Stuff::Wood), ([0.26, 0.24, 0.02], [0.11, 1.42, 0.0], Stuff::Steel), ([0.04, 0.3, 0.014], [0.0, 1.7, 0.0], Stuff::Steel)],
+    // Heavy thrusting sword
+    &[([0.03, 0.22, 0.03], [0.0, -0.03, 0.0], Stuff::Wood), ([0.13, 0.06, 0.13], [0.0, 0.1, 0.0], Stuff::Steel), ([0.028, 1.2, 0.028], [0.0, 0.72, 0.0], Stuff::Steel)],
+    // Curved sword: two offset lengths suggest the curve
+    &[([0.03, 0.18, 0.03], [0.0, -0.02, 0.0], Stuff::Wood), ([0.14, 0.02, 0.04], [0.0, 0.08, 0.0], Stuff::Steel), ([0.055, 0.45, 0.012], [0.0, 0.32, 0.0], Stuff::Steel), ([0.06, 0.4, 0.012], [0.035, 0.72, 0.0], Stuff::Steel)],
+    // Curved greatsword
+    &[([0.04, 0.34, 0.04], [0.0, -0.06, 0.0], Stuff::Wood), ([0.22, 0.03, 0.05], [0.0, 0.12, 0.0], Stuff::Steel), ([0.1, 0.7, 0.016], [0.0, 0.5, 0.0], Stuff::Steel), ([0.11, 0.62, 0.016], [0.06, 1.12, 0.0], Stuff::Steel)],
+    // Twinblade: a blade off each end of the grip
+    &[([0.035, 0.5, 0.035], [0.0, 0.0, 0.0], Stuff::Wood), ([0.05, 0.8, 0.012], [0.0, 0.65, 0.0], Stuff::Steel), ([0.05, 0.8, 0.012], [0.0, -0.65, 0.0], Stuff::Steel)],
+    // Great hammer
+    &[([0.045, 1.15, 0.045], [0.0, 0.4, 0.0], Stuff::Wood), ([0.32, 0.22, 0.22], [0.0, 1.05, 0.0], Stuff::Steel)],
+    // Flail: handle, chain, head
+    &[([0.035, 0.42, 0.035], [0.0, 0.08, 0.0], Stuff::Wood), ([0.015, 0.3, 0.015], [0.0, 0.44, 0.0], Stuff::Steel), ([0.15, 0.15, 0.15], [0.0, 0.66, 0.0], Stuff::Steel)],
+    // Greataxe
+    &[([0.045, 1.25, 0.045], [0.0, 0.45, 0.0], Stuff::Wood), ([0.42, 0.36, 0.03], [0.17, 0.98, 0.0], Stuff::Steel)],
+    // Great spear
+    &[([0.04, 2.3, 0.04], [0.0, 0.7, 0.0], Stuff::Wood), ([0.08, 0.42, 0.02], [0.0, 2.05, 0.0], Stuff::Steel)],
+    // Reaper
+    &[([0.035, 1.8, 0.035], [0.0, 0.55, 0.0], Stuff::Wood), ([0.62, 0.09, 0.015], [0.3, 1.42, 0.0], Stuff::Steel)],
+    // Whip
+    &[([0.035, 0.2, 0.035], [0.0, -0.02, 0.0], Stuff::Wood), ([0.02, 2.0, 0.02], [0.0, 1.08, 0.0], Stuff::Wood)],
+    // Fist
+    &[([0.1, 0.12, 0.1], [0.0, 0.03, 0.0], Stuff::Steel)],
+    // Claw
+    &[([0.09, 0.08, 0.05], [0.0, 0.0, 0.0], Stuff::Wood), ([0.012, 0.3, 0.012], [-0.03, 0.19, 0.0], Stuff::Steel), ([0.012, 0.3, 0.012], [0.0, 0.19, 0.0], Stuff::Steel), ([0.012, 0.3, 0.012], [0.03, 0.19, 0.0], Stuff::Steel)],
+    // Colossal weapon
+    &[([0.06, 1.1, 0.06], [0.0, 0.35, 0.0], Stuff::Wood), ([0.36, 0.62, 0.36], [0.0, 1.25, 0.0], Stuff::Steel)],
+    // Torch
+    &[([0.04, 0.5, 0.04], [0.0, 0.15, 0.0], Stuff::Wood), ([0.09, 0.13, 0.09], [0.0, 0.46, 0.0], Stuff::Steel)],
 ];
 
 #[derive(Clone, Copy)]
@@ -236,7 +264,7 @@ pub fn setup(
     let mut weapons = Vec::new();
     for parts in WEAPON_PARTS {
         let model = group(c, sword);
-        for &(size, at, stuff) in parts {
+        for &(size, at, stuff) in *parts {
             let material = match stuff {
                 Stuff::Steel => &steel,
                 Stuff::Wood => &wood,

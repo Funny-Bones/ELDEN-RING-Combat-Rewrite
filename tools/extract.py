@@ -24,11 +24,13 @@ from erfmt import open_bnd
 SRC = paths.er_files()
 OUT = Path(__file__).parent.parent / "src" / "sim" / "extracted.rs"
 NEVER = 9999.0
-PACKS = ("c0000_a00_hi", "c0000_a2x", "c0000_a3x", "c0000_a4x")
+PACKS = ("c0000_a00_hi", "c0000_a2x", "c0000_a3x", "c0000_a4x", "c0000_a5x")
 
 # (display name, EquipParamWeapon row). The moveset category, attack rating
-# and behaviour variation are read from the row. The shield must stay last:
-# it is what the left hand holds.
+# and behaviour variation are read from the row. Rows are the first weapon of
+# each class, so the later names are the class rather than a specific weapon.
+# The order is shared with WEAPON_LENGTH in data.rs and WEAPON_PARTS in rig.rs,
+# and the shield must stay last: it is what the left hand holds.
 WEAPONS = [
     ("Dagger", 1000000),
     ("Longsword", 2000000),
@@ -40,6 +42,20 @@ WEAPONS = [
     ("Battle Axe", 14000000),
     ("Short Spear", 16000000),
     ("Halberd", 18000000),
+    ("Heavy Thrusting Sword", 6000000),
+    ("Curved Sword", 7000000),
+    ("Curved Greatsword", 8010000),
+    ("Twinblade", 10000000),
+    ("Great Hammer", 12000000),
+    ("Flail", 13000000),
+    ("Greataxe", 15000000),
+    ("Great Spear", 17010000),
+    ("Reaper", 19000000),
+    ("Whip", 20000000),
+    ("Fist", 21000000),
+    ("Claw", 22000000),
+    ("Colossal Weapon", 23000000),
+    ("Torch", 24000000),
     ("Shield", 30000000),
 ]
 DEFAULT_WEAPON = "Longsword"
@@ -274,14 +290,19 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
 
     stamina = 0.0
     hit = "None"
-    if hits:
-        start, end, judge = hits[0]
-        got = src.judge(variation, judge) if variation is not None else None
-        cost, mv, stam_dmg = got if got else (0, 1.0, 1.0)
-        if variation is not None and not got:
+    # The first hit that actually does damage: some animations lead with a
+    # marker event whose attack row has no motion value.
+    for start, end, judge in hits if variation is not None else ():
+        got = src.judge(variation, judge)
+        if not got:
             print("  ! no behaviour row for", clip_name(file, anim_id), "judge", judge)
+            continue
+        cost, mv, stam_dmg = got
+        if mv <= 0.0:
+            continue
         stamina = float(cost)
         hit = "Some(Hit { from: %.1f, to: %.1f, mv: %.2f, guard_damage: %.2f })" % (start, end, mv, stam_dmg)
+        break
     charge = "Some((%.1f, %.1f))" % charging[0] if charging else "None"
 
     fields = [
@@ -325,8 +346,15 @@ def gather(src):
             for kind, base_id in ATTACKS:
                 anim_id = base_id + offset
                 literal = action_def(src, kind, weapon["file"], anim_id, weapon["variation"])
-                if literal:
-                    attacks.append((index, two_hand, kind, literal, weapon["file"], anim_id))
+                if not literal:
+                    continue
+                # A few paired-weapon attacks carry no hit event of their own.
+                # A swing that can never connect is worse than not having it:
+                # leaving it out makes the moveset fall back to another attack.
+                if "hit: None" in literal and not kind.endswith("Short"):
+                    print("  skipped (no hit window):", weapon["name"], "2H" if two_hand else "1H", kind)
+                    continue
+                attacks.append((index, two_hand, kind, literal, weapon["file"], anim_id))
             for heavy, base_id in ((False, AIR_LIGHT), (True, AIR_HEAVY)):
                 anim_id = base_id + offset
                 anim = src.anim(weapon["file"], anim_id)

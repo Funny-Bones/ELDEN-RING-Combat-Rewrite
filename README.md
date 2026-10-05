@@ -22,9 +22,12 @@ the tools here generate the data.
 - **Combat:** light chains, heavy and charged heavy attacks, running, rolling,
   backstep, crouch, jump and guard-counter attacks; guarding, guard break and
   graded, directional hit reactions.
-- **Weapons:** Dagger, Longsword, Claymore, Greatsword, Rapier, Uchigatana,
-  Club, Battle Axe, Short Spear and Halberd, plus a Shield. Every one can be
-  held one- or two-handed, with its own moveset either way.
+- **Weapons:** 24 classes, each usable one- or two-handed with its own
+  moveset either way: Dagger, Longsword, Claymore, Greatsword, Rapier,
+  Uchigatana, Club, Battle Axe, Short Spear, Halberd, Heavy Thrusting Sword,
+  Curved Sword, Curved Greatsword, Twinblade, Great Hammer, Flail, Greataxe,
+  Great Spear, Reaper, Whip, Fist, Claw, Colossal Weapon and Torch, plus a
+  Shield in the off hand.
 - **A sparring dummy** that can be set hostile, to test dodging, blocking and
   getting hit.
 

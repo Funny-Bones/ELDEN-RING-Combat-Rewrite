@@ -521,14 +521,23 @@ fn weapon_swap_cycles_through_everything_but_the_shield() {
 #[test]
 fn every_moveset_has_its_core_attacks() {
     use AttackKind::*;
+    let all = [
+        Light1, Light2, Light3, Light4, Light5, Light6, RunLight, RunHeavy, RollAttack, CrouchAttack,
+        BackstepAttack, Heavy1Charge, Heavy1, Heavy2Charge, Heavy2, GuardCounter, JumpLightLand, JumpHeavyLand,
+    ];
     for weapon in 0..WEAPONS.len() {
         for two_hand in [false, true] {
             let moveset = Moveset { weapon: weapon as u8, two_hand };
-            for kind in [Light1, Light2, Heavy1Charge, Heavy1, RunLight, RunHeavy, RollAttack, BackstepAttack] {
-                let def = moveset.attack(kind).unwrap_or_else(|| panic!("{} {two_hand} {kind:?}", WEAPONS[weapon].name));
-                let hit = def.hit.unwrap();
-                assert!(hit.from < hit.to && hit.to <= def.total, "{} {kind:?}", WEAPONS[weapon].name);
-                assert!(def.stamina > 0.0 && hit.mv > 0.0);
+            let name = WEAPONS[weapon].name;
+            for kind in [Light1, Light2, Heavy1Charge, Heavy1, RunHeavy, BackstepAttack] {
+                assert!(moveset.has(kind), "{name} {two_hand} {kind:?}");
+            }
+            // Whatever a moveset does have must be able to hit and must cost stamina.
+            for kind in all {
+                let Some(def) = moveset.attack(kind) else { continue };
+                let hit = def.hit.unwrap_or_else(|| panic!("{name} {two_hand} {kind:?} has no hit"));
+                assert!(hit.from < hit.to && hit.to <= def.total, "{name} {kind:?}");
+                assert!(def.stamina > 0.0 && hit.mv > 0.0, "{name} {kind:?}");
             }
         }
     }
@@ -742,4 +751,12 @@ fn light_after_an_opener_continues_with_the_second_swing() {
         }
     }
     assert_eq!(&seen[..2], &[RollAttack, Light2]);
+}
+
+#[test]
+fn every_weapon_has_a_length_for_its_reach() {
+    // WEAPON_LENGTH is kept by hand, in the generator's weapon order.
+    assert_eq!(WEAPON_LENGTH.len(), WEAPONS.len());
+    assert_eq!(WEAPONS[SHIELD].name, "Shield");
+    assert_eq!(SHIELD, WEAPONS.len() - 1);
 }

@@ -135,7 +135,12 @@ pub struct WeaponInfo {
 /// Blade length per weapon, metres, in `WEAPONS` order. ESTIMATE: used to
 /// draw the weapon and to size its hit wedge; the game's models and hit
 /// capsules are not extracted.
-pub const WEAPON_LENGTH: [f32; 11] = [0.35, 0.9, 1.3, 1.7, 1.0, 0.95, 0.6, 0.7, 1.9, 2.1, 0.3];
+pub const WEAPON_LENGTH: &[f32] = &[
+    0.35, 0.9, 1.3, 1.7, 1.0, 0.95, 0.6, 0.7, 1.9, 2.1, // dagger .. halberd
+    1.25, 0.85, 1.35, 1.0, 1.2, 0.8, 1.2, 2.3, 1.7, 2.2, // heavy thrusting sword .. whip
+    0.15, 0.3, 1.6, 0.5, // fist, claw, colossal weapon, torch
+    0.3, // shield
+];
 
 /// How the armaments are held.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
