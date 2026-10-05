@@ -1,0 +1,4 @@
+/target
+__pycache__/
+# Baked from the game's own animation files: regenerate locally, do not redistribute.
+/assets/player_anims.bin
