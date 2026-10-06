@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use crate::sim::data::*;
 use crate::sim::dummy;
 use crate::sim::player::State;
+use crate::demo::Demo;
 use crate::{Options, Sim};
 
 const BAR_BACK: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
@@ -23,6 +24,8 @@ pub enum Label {
     Log,
     Help,
     Died,
+    /// What the demo is showing.
+    Caption,
 }
 
 #[derive(Component)]
@@ -39,6 +42,7 @@ Right arrow: next weapon
 Q / MMB lock-on
 1/2/3 light/medium/heavy load
 T dummy hostile   F1 i-frame tint   H help
+ENTER play the demo (ENTER again stops it)
 Pad: B dodge/sprint  A jump  RB/RT attack
      LB guard  L3 crouch  R3 lock-on
      Y+RB / Y+LB two-hand  D-pad right: weapon";
@@ -121,6 +125,22 @@ pub fn setup(mut commands: Commands) {
         Label::Help,
         Node { position_type: PositionType::Absolute, left: px(28), bottom: px(20), ..default() },
     ));
+    let caption = commands
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            width: percent(100),
+            bottom: px(96),
+            justify_content: JustifyContent::Center,
+            ..default()
+        })
+        .id();
+    commands.spawn((
+        Text::new(""),
+        font(34.0),
+        TextColor(Color::srgb(0.96, 0.9, 0.7)),
+        Label::Caption,
+        ChildOf(caption),
+    ));
     commands.spawn((
         Text::new("YOU DIED"),
         font(72.0),
@@ -152,6 +172,7 @@ pub fn setup(mut commands: Commands) {
 pub fn update(
     mut sim: ResMut<Sim>,
     options: Res<Options>,
+    demo: Res<Demo>,
     mut bars: Query<(&mut Node, &Bar), Without<LockMarker>>,
     mut labels: Query<(&mut Text, &mut Visibility, &Label), Without<LockMarker>>,
     mut marker: Single<(&mut Node, &mut Visibility), With<LockMarker>>,
@@ -180,6 +201,11 @@ pub fn update(
             Label::Log => text.0 = log.join("\n"),
             Label::Help => {
                 *visibility = if options.show_help { Visibility::Inherited } else { Visibility::Hidden }
+            }
+            Label::Caption => {
+                if text.0 != demo.caption {
+                    text.0 = demo.caption.to_string();
+                }
             }
             Label::Died => {
                 *visibility = if player.is_dead() { Visibility::Inherited } else { Visibility::Hidden }

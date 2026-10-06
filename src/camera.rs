@@ -26,11 +26,13 @@ pub struct CamRig {
     recenter: Option<f32>,
     /// Seconds since the player last moved the camera themselves.
     idle: f32,
+    /// While the demo runs, the yaw it wants the free camera at.
+    pub demo: Option<f32>,
 }
 
 impl Default for CamRig {
     fn default() -> Self {
-        Self { yaw: 0.0, pitch: -0.25, pivot: Vec3::Y * PIVOT_HEIGHT, recenter: None, idle: 0.0 }
+        Self { yaw: 0.0, pitch: -0.25, pivot: Vec3::Y * PIVOT_HEIGHT, recenter: None, idle: 0.0, demo: None }
     }
 }
 
@@ -79,6 +81,14 @@ pub fn look(
             cam.yaw += angle_diff(cam.yaw, yaw_of(to)) * ease;
             cam.pitch += (LOCKED_PITCH - cam.pitch) * ease;
         }
+        return;
+    }
+
+    if let Some(goal) = cam.demo {
+        // The demo directs the camera itself.
+        let ease = 1.0 - (-3.0 * dt).exp();
+        cam.yaw += angle_diff(cam.yaw, goal) * ease;
+        cam.pitch += (-0.25 - cam.pitch) * ease;
         return;
     }
 

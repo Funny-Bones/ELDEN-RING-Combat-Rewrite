@@ -66,6 +66,19 @@ one for each hit reaction:
 | Harder slam | red | large stagger |
 | Hardest slam | purple | knockdown |
 
+### The arena
+
+Crates stacked into a climb up to a wall you can walk along, a platform
+across a gap from it, a slope, a row of pillars, a low dais, and a staircase
+21 m high that passes every fall-damage threshold on the way up.
+
+### The demo
+
+Press `Enter` and the sandbox plays itself through everything above, with a
+caption for each thing it shows: about five minutes, made for recording.
+`Enter` again stops it. It resets the arena when it starts, and plays through
+the same inputs a player has, so nothing in it is staged.
+
 ### Sound (optional)
 
 With the game's sound banks unpacked, the sandbox plays the game's own
@@ -140,6 +153,7 @@ silently.
 
 Sandbox keys: `1` / `2` / `3` set light / medium / heavy equip load, `T` makes
 the dummy hostile, `F1` toggles the i-frame tint, `H` toggles the help overlay,
+`Enter` plays the demo,
 `Esc` releases the mouse. Click the window to capture the mouse.
 
 ## Setup
@@ -223,6 +237,7 @@ python tools/bake_sounds.py
 | `src/sim/tests.rs` | Behaviour tests; run with `cargo test`. |
 | `src/rig.rs`, `src/anim.rs` | The rig, and loading and playing the baked animations. |
 | `src/audio.rs` | Plays the baked sounds as the animations pass their frames. |
+| `src/demo.rs` | The scripted demo, and a test that plays it through without a window. |
 | `src/camera.rs`, `src/input.rs`, `src/hud.rs`, `src/view.rs` | Camera, bindings, HUD, arena and dummy visuals. |
 | `tools/setup.py` | Runs the generators below. |
 | `tools/extract.py` | Reads timings, root motion and params; writes `extracted.rs`. |

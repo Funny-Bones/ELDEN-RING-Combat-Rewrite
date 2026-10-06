@@ -8,6 +8,7 @@ use bevy::prelude::*;
 mod anim;
 mod audio;
 mod camera;
+mod demo;
 mod hud;
 mod input;
 mod rig;
@@ -85,6 +86,7 @@ Run it from the project folder, and bake the animations first with:
         .init_resource::<Pending>()
         .init_resource::<Rendered>()
         .init_resource::<camera::CamRig>()
+        .init_resource::<demo::Demo>()
         .add_systems(Startup, (view::setup, rig::setup, hud::setup, camera::setup))
         .add_systems(
             RunFixedMainLoop,
@@ -92,10 +94,11 @@ Run it from the project folder, and bake the animations first with:
                 .chain()
                 .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         )
-        .add_systems(FixedUpdate, tick)
+        .add_systems(FixedUpdate, (demo::drive, tick).chain())
         .add_systems(
             Update,
             (
+                demo::control,
                 interpolate,
                 input::debug_keys,
                 rig::animate,
