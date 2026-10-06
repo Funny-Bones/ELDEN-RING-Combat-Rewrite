@@ -7,9 +7,10 @@ The character is a stick-and-capsule rig, but what drives it is real: the
 timings, movement and animations are read from the game's own files rather
 than tuned by eye.
 
-[![Watch the demo](https://img.youtube.com/vi/3o1tS0Gufdk/maxresdefault.jpg)](https://www.youtube.com/watch?v=3o1tS0Gufdk)
+https://github.com/user-attachments/assets/b58dbb0d-a3db-46d5-82ee-d9152503e40c
 
-*The sandbox playing itself through everything it does. Click to watch.*
+*The sandbox playing itself through everything it does.
+[Watch it in full quality on YouTube](https://www.youtube.com/watch?v=3o1tS0Gufdk).*
 
 This is a fan project for study. It is not affiliated with or endorsed by
 FromSoftware or Bandai Namco. Nothing from the game is in this repository,
