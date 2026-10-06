@@ -464,13 +464,24 @@ pub fn animate(
         (WEAPONS[SHIELD].stance[0], &[&LEFT_ARM])
     };
     overlay(&mut pose, &clip_name(guard_stance, GUARD), None, guard_arms, rig.guard);
-    // Changing grip or weapon is an upper-body animation over whatever the legs are doing.
-    rig.swap = (rig.swap + if player.swap.is_some() { step } else { -step }).clamp(0.0, 1.0);
-    if let Some(swap) = player.swap {
-        let def = swap.kind.def();
-        let frame = swap.f + rendered.alpha * DF;
-        let (clip, frame) = if frame < def.start_len { (def.start, frame) } else { (def.end, frame - def.start_len) };
-        overlay(&mut pose, clip, Some(frame), &[&LEFT_ARM, &RIGHT_ARM], rig.swap);
+    // Changing grip or weapon is an upper-body animation over whatever the
+    // legs are doing. It blends in over the reach, and out across the settle:
+    // the settle is authored to finish in the neutral stance, so holding it at
+    // full strength would end on the wrong pose and snap to the real one.
+    match player.swap {
+        Some(swap) => {
+            let def = swap.kind.def();
+            let frame = swap.f + rendered.alpha * DF;
+            rig.swap = (rig.swap + step).min(1.0);
+            let (clip, at, weight) = if frame < def.start_len {
+                (def.start, frame, rig.swap)
+            } else {
+                let t = ((frame - def.start_len) / def.end_len).clamp(0.0, 1.0);
+                (def.end, frame - def.start_len, rig.swap * (1.0 - t * t * (3.0 - 2.0 * t)))
+            };
+            overlay(&mut pose, clip, Some(at), &[&LEFT_ARM, &RIGHT_ARM], weight);
+        }
+        None => rig.swap = 0.0,
     }
 
     // Show whatever is actually in each hand.

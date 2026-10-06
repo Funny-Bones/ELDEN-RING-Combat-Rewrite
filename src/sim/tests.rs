@@ -531,8 +531,8 @@ fn weapon_swap_cycles_through_everything_but_the_shield() {
 fn a_grip_change_takes_time_and_does_not_stop_movement() {
     let mut w = world();
     let def = SwapKind::ToTwoHandRight.def();
-    assert_eq!((def.start, def.end), ("a000_029060", "a000_029070"));
-    assert_eq!((def.start_len, def.end_len, def.apply, def.free_from), (5.0, 13.0, 3.0, 7.0));
+    assert_eq!((def.start, def.end), ("a000_029060", "a000_029050"));
+    assert_eq!((def.start_len, def.end_len, def.apply, def.free_from), (5.0, 17.0, 3.0, 7.0));
 
     // Running the whole time: the change is an upper-body animation.
     run(&mut w, forward(), 30);

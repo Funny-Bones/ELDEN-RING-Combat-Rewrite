@@ -124,11 +124,12 @@ PACKS_REACTIONS = ("c0000_a00_md", "c0000_a00_lo")  # also hold the swap clips
 
 # Changing grip or weapon: (Rust variant, start animation, end animation).
 # Each is a short reach for the weapon, during which the change takes effect,
-# followed by a settle. The game plays them on the upper body only. Which end
-# follows which start is inferred from how the animations borrow each other.
+# followed by a settle. The game plays them on the upper body only. Each end
+# is the one whose first pose is exactly the start's last pose; every start
+# begins, and every end finishes, in the neutral stance.
 SWAPS = [
-    ("ToTwoHandRight", 29060, 29070),
-    ("ToTwoHandLeft", 29080, 29090),
+    ("ToTwoHandRight", 29060, 29050),
+    ("ToTwoHandLeft", 29080, 29020),
     ("ToOneHandFromRight", 29040, 29050),
     ("ToOneHandFromLeft", 29010, 29020),
     ("NextWeapon", 29000, 29020),
