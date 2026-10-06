@@ -2,6 +2,8 @@
 
   src/sim/extracted.rs      action timings, root motion, weapon data
   assets/player_anims.bin   the baked animations
+  assets/player_sounds.bin  which sounds each animation plays, and when
+  assets/sounds/            the recordings, converted to Ogg Vorbis
 
 Neither is distributed with the project. Unpack the game files first and
 point ER_FILES / ER_GAME_DIR at them (see README), then run:
@@ -19,10 +21,13 @@ paths.er_files()
 paths.game_dir()
 
 import bake_anims
+import bake_sounds
 import extract
 
-print("1/2  Extracting action data...")
+print("1/3  Extracting action data...")
 extract.main()
-print("2/2  Baking animations...")
+print("2/3  Baking animations...")
 bake_anims.main()
+print("3/3  Baking sounds...")
+bake_sounds.main()
 print("\nDone. Start the sandbox with:  cargo run")
