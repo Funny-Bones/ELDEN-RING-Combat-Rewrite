@@ -158,6 +158,18 @@ fn pick(tree: &Tree, rng: &mut u32, out: &mut Vec<(u32, f32, f32)>) {
     }
 }
 
+/// The frame of a clip the sound system should hear. Loops driven by the wall
+/// clock (idle, airborne) count frames up for ever; they are wrapped to the
+/// clip's length, or their sounds would only fire on the first pass.
+pub fn heard_frame(frame: f32, looped: bool, clip_frames: usize) -> f32 {
+    let last = (clip_frames.max(2) - 1) as f32;
+    if looped {
+        frame.rem_euclid(last)
+    } else {
+        frame
+    }
+}
+
 /// Sounds of `events` the animation passed through between `last` (the frame
 /// heard last update, if it was this same clip) and `frame`. A looped clip
 /// that wrapped round fires the end of the loop and its start; a new clip
@@ -221,6 +233,26 @@ mod tests {
         assert_eq!(due(&events, Some(14.0), 2.0, true), vec![0, 2]);
         // An action restarting from its beginning.
         assert_eq!(due(&events, Some(20.0), 0.5, false), vec![0]);
+    }
+
+    /// A loop on the wall clock keeps firing its sounds, once per pass.
+    #[test]
+    fn wall_clock_loops_repeat_their_sounds() {
+        let events = [(10.0, 0)];
+        let clip_frames = 91; // a 90-frame loop, like the idle
+        let mut fired = 0;
+        let mut last = None;
+        // Five passes of the loop, at an awkward step so frames never land exactly.
+        let mut clock = 0.0_f32;
+        while clock < 450.0 {
+            let frame = heard_frame(clock, true, clip_frames);
+            fired += due(&events, last, frame, true).len();
+            last = Some(frame);
+            clock += 0.7;
+        }
+        assert_eq!(fired, 5);
+        // A one-shot clip is passed through untouched.
+        assert_eq!(heard_frame(123.4, false, clip_frames), 123.4);
     }
 
     /// The baked recordings decode with the decoder Bevy plays them through.

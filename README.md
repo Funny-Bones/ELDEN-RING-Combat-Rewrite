@@ -22,6 +22,8 @@ the tools here generate the data.
 - **Combat:** light chains, heavy and charged heavy attacks, running, rolling,
   backstep, crouch, jump and guard-counter attacks; guarding, guard break and
   graded, directional hit reactions.
+- **Grip and weapon changes** that play on the upper body while you keep
+  moving, as in the game.
 - **Weapons:** 24 classes, each usable one- or two-handed with its own
   moveset either way: Dagger, Longsword, Claymore, Greatsword, Rapier,
   Uchigatana, Club, Battle Axe, Short Spear, Halberd, Heavy Thrusting Sword,
@@ -40,14 +42,16 @@ Read from the game's files:
 
 - Every action's length, hit window, i-frames, cancel windows and input window.
 - Root motion for every action, and walk / run / sprint / crouch speeds.
-- Attack stamina costs, motion values and each weapon's base attack.
+- Stamina costs (attacks, rolls, backsteps, jumps), motion values and each
+  weapon's base attack.
+- Changing grip or weapon: its animations and when the change takes effect.
 - The player skeleton and the animations themselves.
 - Which sounds each animation plays and on which frame, which recordings each
   sound picks from, their volumes, and each weapon's swing-sound offset.
 
 Still estimated (all marked `ESTIMATE` in `src/sim/data.rs`):
 
-- Roll, backstep and jump stamina costs, and how long to hold for a sprint.
+- How long the dodge button must be held for a sprint.
 - Max HP and stamina, stamina regeneration, sprint drain.
 - Gravity after a jump's arc ends, and the fall-damage thresholds.
 - Locomotion acceleration and turn rates.
@@ -61,8 +65,8 @@ does. A few weapon classes whose swings live in banks outside `cs_main` swing
 silently.
 
 Not included: weapon skills, parrying, stat scaling, the two-handing damage
-bonus, weapon-swap animations, heavier hit reactions (knockdowns, launches),
-and multiple hits within one attack. The rig is primitives, so fingers, cloth
+bonus, heavier hit reactions (knockdowns, launches), and multiple hits within
+one attack. The rig is primitives, so fingers, cloth
 and faces are not drawn, and animation blending is simpler than the game's.
 
 Which animation belongs to which action is partly inferred from the data,
@@ -100,7 +104,8 @@ derived from the game: the action table (`src/sim/extracted.rs`), the baked
 animations (`assets/player_anims.bin`) and the sounds
 (`assets/player_sounds.bin`, `assets/sounds/`). The project will not compile or run
 until you generate them from your own game files. That is one command once
-the files are unpacked.
+the files are unpacked. Sound is optional: without the sound banks, setup
+skips that step and the sandbox runs silent.
 
 1. **Unpack the game files.** The archives are encrypted, so this step uses
    community tools:
@@ -108,8 +113,11 @@ the files are unpacked.
      `c0000.anibnd.dcx`, `c0000_a00_hi`, `c0000_a00_lo`, `c0000_a00_md`,
      `c0000_a0x`, `c0000_a1x`, `c0000_a2x`, `c0000_a3x` and `c0000_a4x`
      (each `.anibnd.dcx`). Use **Unpack** only, never **Patch**.
-   - With UXM Selective Unpack, also unpack `sd/cs_smain.bnk` and
-     `sd/enus/cs_main.bnk`, the sound banks.
+   - For sound, also unpack `sd/cs_smain.bnk` and `sd/enus/cs_main.bnk`
+     with UXM Selective Unpack. These two are optional.
+   - For the stamina constants, `action/script/common_define.hks` is the
+     source; they are already written into the code, so it is not needed
+     to build.
    - With WitchyBND, unpack `regulation.bin` into a `regulation-bin` folder.
    - Put the results in one folder, laid out as `chr/...`, `sd/...` and
      `regulation-bin/...`.
@@ -168,7 +176,7 @@ Without the sounds the sandbox still runs, silently.
 | `src/sim/tests.rs` | Behaviour tests; run with `cargo test`. |
 | `src/rig.rs`, `src/anim.rs` | The rig, and loading and playing the baked animations. |
 | `src/camera.rs`, `src/input.rs`, `src/hud.rs`, `src/view.rs` | Camera, bindings, HUD, arena and dummy. |
-| `tools/setup.py` | Runs both generators below. |
+| `tools/setup.py` | Runs the generators below. |
 | `tools/extract.py` | Reads timings, root motion and params; writes `extracted.rs`. |
 | `tools/bake_anims.py` | Decodes the skeletal animations; writes `assets/player_anims.bin`. |
 | `tools/bake_sounds.py` | Resolves each animation's sound events in the Wwise banks; writes `assets/player_sounds.bin` and `assets/sounds/`. |

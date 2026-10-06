@@ -471,10 +471,19 @@ fn extracted_speeds_are_the_games() {
     assert!((SPRINT_SPEED - 6.035).abs() < 0.01);
 }
 
+/// Starts a grip or weapon change and steps until it has fully played out.
+fn change(w: &mut World, inp: Input) {
+    w.step(&inp);
+    assert!(w.player.swap.is_some(), "the change did not start");
+    while w.player.swap.is_some() {
+        w.step(&idle());
+    }
+}
+
 #[test]
 fn two_handing_the_weapon_switches_to_its_two_handed_moveset() {
     let mut w = world();
-    w.step(&Input { two_hand_right: true, ..idle() });
+    change(&mut w, Input { two_hand_right: true, ..idle() });
     assert_eq!(w.player.grip, Grip::TwoHandRight);
     w.step(&Input { light: DOWN, ..idle() });
     let two_handed = Moveset { weapon: DEFAULT_WEAPON as u8, two_hand: true };
@@ -483,23 +492,23 @@ fn two_handing_the_weapon_switches_to_its_two_handed_moveset() {
 
     // The grip cannot change in the middle of a swing.
     w.step(&Input { two_hand_right: true, ..idle() });
-    assert_eq!(w.player.grip, Grip::TwoHandRight);
+    assert!(w.player.swap.is_none());
     run(&mut w, idle(), 300);
-    w.step(&Input { two_hand_right: true, ..idle() });
+    change(&mut w, Input { two_hand_right: true, ..idle() });
     assert_eq!(w.player.grip, Grip::OneHand);
 }
 
 #[test]
 fn two_handing_the_left_hand_uses_the_shield_moveset() {
     let mut w = world();
-    w.step(&Input { two_hand_left: true, ..idle() });
+    change(&mut w, Input { two_hand_left: true, ..idle() });
     assert_eq!(w.player.grip, Grip::TwoHandLeft);
     assert_eq!(w.player.moveset().info().name, "Shield");
     w.step(&Input { light: DOWN, ..idle() });
     assert_eq!(id(&w).unwrap().def().source, "a048_032000");
     run(&mut w, idle(), 300);
     // Going straight from one two-handed grip to the other.
-    w.step(&Input { two_hand_right: true, ..idle() });
+    change(&mut w, Input { two_hand_right: true, ..idle() });
     assert_eq!(w.player.grip, Grip::TwoHandRight);
 }
 
@@ -508,7 +517,7 @@ fn weapon_swap_cycles_through_everything_but_the_shield() {
     let mut w = world();
     let mut seen = vec![w.player.weapon];
     for _ in 0..SHIELD {
-        w.step(&Input { next_weapon: true, ..idle() });
+        change(&mut w, Input { next_weapon: true, ..idle() });
         seen.push(w.player.weapon);
     }
     assert_eq!(seen.first(), seen.last(), "back where it started");
@@ -516,6 +525,61 @@ fn weapon_swap_cycles_through_everything_but_the_shield() {
     seen.sort();
     seen.dedup();
     assert_eq!(seen.len(), SHIELD);
+}
+
+#[test]
+fn a_grip_change_takes_time_and_does_not_stop_movement() {
+    let mut w = world();
+    let def = SwapKind::ToTwoHandRight.def();
+    assert_eq!((def.start, def.end), ("a000_029060", "a000_029070"));
+    assert_eq!((def.start_len, def.end_len, def.apply, def.free_from), (5.0, 13.0, 3.0, 7.0));
+
+    // Running the whole time: the change is an upper-body animation.
+    run(&mut w, forward(), 30);
+    w.step(&Input { two_hand_right: true, ..forward() });
+    let mut ticks = 0;
+    let mut applied_at = None;
+    while let Some(swap) = w.player.swap {
+        assert!(matches!(w.player.state, State::Ground));
+        assert!((w.player.speed - RUN_SPEED).abs() < 1e-3, "still running");
+        if applied_at.is_none() && w.player.grip == Grip::TwoHandRight {
+            applied_at = Some(swap.f);
+        }
+        w.step(&forward());
+        ticks += 1;
+    }
+    assert_eq!(applied_at, Some(def.apply), "the weapon is in both hands from frame 3");
+    assert_eq!(ticks as f32 * DF, def.total());
+}
+
+#[test]
+fn attacks_wait_for_the_hands_to_be_free() {
+    let mut w = world();
+    let def = SwapKind::ToTwoHandRight.def();
+    w.step(&Input { two_hand_right: true, ..idle() });
+    // Pressed immediately: queued, not dropped, and not started early.
+    w.step(&Input { light: DOWN, ..idle() });
+    while w.player.swap_busy() {
+        assert!(action(&w).is_none());
+        w.step(&idle());
+    }
+    let free = w.player.swap.unwrap().f;
+    assert_eq!(free, def.start_len + def.free_from);
+    w.step(&idle());
+    let two_handed = Moveset { weapon: DEFAULT_WEAPON as u8, two_hand: true };
+    assert_eq!(id(&w), Some(ActionId::Attack(two_handed, AttackKind::Light1)), "and it uses the new grip");
+}
+
+#[test]
+fn getting_hit_interrupts_a_grip_change_before_it_takes_effect() {
+    use super::player::Incoming;
+    let mut w = world();
+    w.step(&Input { two_hand_right: true, ..idle() });
+    let hit = Incoming { damage: 10.0, stamina: 10.0, from: Vec3::Z, low: false, level: HurtLevel::Small };
+    w.player.receive_hit(&hit, &Level::flat());
+    assert!(w.player.swap.is_none());
+    run(&mut w, idle(), 120);
+    assert_eq!(w.player.grip, Grip::OneHand);
 }
 
 #[test]
@@ -719,7 +783,7 @@ fn light_after_an_opener_continues_with_the_second_swing() {
     for two_hand in [false, true] {
         let mut w = world();
         if two_hand {
-            w.step(&Input { two_hand_right: true, ..idle() });
+            change(&mut w, Input { two_hand_right: true, ..idle() });
         }
         w.step(&Input { dodge: DOWN, ..forward() });
         run(&mut w, Input { dodge: HELD, ..forward() }, 40);
@@ -759,4 +823,21 @@ fn every_weapon_has_a_length_for_its_reach() {
     assert_eq!(WEAPON_LENGTH.len(), WEAPONS.len());
     assert_eq!(WEAPONS[SHIELD].name, "Shield");
     assert_eq!(SHIELD, WEAPONS.len() - 1);
+}
+
+#[test]
+fn dodge_and_jump_cost_what_the_game_charges() {
+    let spent = |inp: Input, taps_dodge: bool| {
+        let mut w = world();
+        if taps_dodge {
+            let tap = Button { held: false, pressed: true, released: true };
+            w.step(&Input { dodge: tap, ..inp });
+        } else {
+            w.step(&Input { jump: DOWN, ..inp });
+        }
+        MAX_STAMINA - w.player.stamina
+    };
+    assert_eq!(spent(forward(), true), 12.0, "roll");
+    assert_eq!(spent(idle(), true), 8.0, "backstep");
+    assert_eq!(spent(idle(), false), 10.0, "jump");
 }

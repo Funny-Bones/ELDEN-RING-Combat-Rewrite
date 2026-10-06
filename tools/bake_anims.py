@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import hkanim
 import paths
 from erfmt import open_bnd
-from extract import BASE, REACTIONS, Source, blend_frames, gather
+from extract import BASE, REACTIONS, SWAPS, Source, blend_frames, gather
 from skel import fk, qrot
 
 SRC = paths.er_files() / "chr"
@@ -64,6 +64,7 @@ def wanted_clips(src, gathered=None):
     `gathered` is extract.gather(src), if the caller already has it."""
     weapons, attacks, air = gathered or gather(src)
     wanted = [(file, anim_id) for _variant, file, anim_id in BASE + REACTIONS] + EXTRA
+    wanted += [("a00", anim_id) for _variant, start, end in SWAPS for anim_id in (start, end)]
     # Every stance a weapon can be held in: idle and guard, plus the full
     # locomotion set that two-handed stances carry.
     for weapon in weapons:

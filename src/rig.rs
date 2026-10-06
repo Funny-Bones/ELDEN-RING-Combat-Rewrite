@@ -188,6 +188,7 @@ pub struct Rig {
     phase: f32,
     guard: f32,
     carry: f32,
+    swap: f32,
     /// Smoothed height the body stands at, so steps are climbed, not snapped up.
     body_y: f32,
     /// How far each foot (left, right) is lifted to meet the ground under it.
@@ -305,6 +306,7 @@ pub fn setup(
         phase: 0.0,
         guard: 0.0,
         carry: 0.0,
+        swap: 0.0,
         body_y: 0.0,
         foot_lift: [0.0; 2],
     });
@@ -394,7 +396,7 @@ pub fn animate(
     };
     clips.sample(clip, frame, looped, &mut target);
 
-    rig.frame = frame;
+    rig.frame = crate::audio::heard_frame(frame, looped, clip.frames);
     rig.looped = looped;
     // Cross-fade from whatever was on screen, over the clip's authored blend time.
     if name != rig.clip {
@@ -428,14 +430,18 @@ pub fn animate(
     pose.clone_from(&rig.shown);
     // An arm layer takes those joints from another clip, re-seated on the
     // chest of whatever the body is doing.
-    let mut overlay = |pose: &mut Vec<f32>, name: &str, arms: &[&[&str]], weight: f32| {
-        let Some(clip) = clips.get(&name) else {
+    let mut overlay = |pose: &mut Vec<f32>, name: &str, at: Option<f32>, arms: &[&[&str]], weight: f32| {
+        let Some(clip) = clips.get(name) else {
             return;
         };
         if weight <= 0.0 {
             return;
         }
-        clips.sample(clip, time.elapsed_secs() * ANIM_FPS, true, &mut layer);
+        // Stances loop on the wall clock; one-shot layers are given their frame.
+        match at {
+            Some(frame) => clips.sample(clip, frame, false, &mut layer),
+            None => clips.sample(clip, time.elapsed_secs() * ANIM_FPS, true, &mut layer),
+        }
         let chest = clips.joint("Spine2");
         let offset = vec3(pose, chest) - vec3(&layer, chest);
         for joint in arms.iter().flat_map(|arm| arm.iter()) {
@@ -450,14 +456,22 @@ pub fn animate(
             }
         }
     };
-    overlay(&mut pose, &clip_name(stance, IDLE), &[&RIGHT_ARM], rig.carry);
+    overlay(&mut pose, &clip_name(stance, IDLE), None, &[&RIGHT_ARM], rig.carry);
     // One-handed, the guard is the shield arm alone, from the shield's own stance.
     let (guard_stance, guard_arms): (u8, &[&[&str]]) = if two_handed {
         (stance, &[&LEFT_ARM, &RIGHT_ARM])
     } else {
         (WEAPONS[SHIELD].stance[0], &[&LEFT_ARM])
     };
-    overlay(&mut pose, &clip_name(guard_stance, GUARD), guard_arms, rig.guard);
+    overlay(&mut pose, &clip_name(guard_stance, GUARD), None, guard_arms, rig.guard);
+    // Changing grip or weapon is an upper-body animation over whatever the legs are doing.
+    rig.swap = (rig.swap + if player.swap.is_some() { step } else { -step }).clamp(0.0, 1.0);
+    if let Some(swap) = player.swap {
+        let def = swap.kind.def();
+        let frame = swap.f + rendered.alpha * DF;
+        let (clip, frame) = if frame < def.start_len { (def.start, frame) } else { (def.end, frame - def.start_len) };
+        overlay(&mut pose, clip, Some(frame), &[&LEFT_ARM, &RIGHT_ARM], rig.swap);
+    }
 
     // Show whatever is actually in each hand.
     let mut show = |entity: Entity, on: bool| {

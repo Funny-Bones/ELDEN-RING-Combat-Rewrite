@@ -72,6 +72,18 @@ pub struct Act {
     paid: bool,
 }
 
+/// A grip or weapon change in progress. It plays on the upper body, so it
+/// runs alongside movement instead of being an action of its own.
+#[derive(Clone, Copy, Debug)]
+pub struct Swap {
+    pub kind: SwapKind,
+    pub f: f32,
+    /// What will be in hand once the change takes effect.
+    grip: Grip,
+    weapon: usize,
+    applied: bool,
+}
+
 /// A jump attack in progress. It runs on its own clock over the jump or fall.
 #[derive(Clone, Copy, Debug)]
 pub struct AirAttack {
@@ -160,6 +172,7 @@ pub struct Player {
     pub in_combat: bool,
     pub buffer: Option<Req>,
     pub air_attack: Option<AirAttack>,
+    pub swap: Option<Swap>,
     pub spawn: Vec3,
     guard_t: f32,
     guard_counter: f32,
@@ -192,6 +205,7 @@ impl Player {
             in_combat: false,
             buffer: None,
             air_attack: None,
+            swap: None,
             spawn,
             guard_t: 0.0,
             guard_counter: 0.0,
@@ -310,6 +324,16 @@ impl Player {
         if let Some(attack) = &mut self.air_attack {
             attack.f += DF;
         }
+        if let Some(mut swap) = self.swap {
+            let def = swap.kind.def();
+            swap.f += DF;
+            if !swap.applied && swap.f >= def.apply {
+                self.grip = swap.grip;
+                self.weapon = swap.weapon;
+                swap.applied = true;
+            }
+            self.swap = (swap.f < def.total()).then_some(swap);
+        }
 
         let regen = match self.state {
             State::Ground => self.ground(inp, level, target),
@@ -368,6 +392,14 @@ impl Player {
         }
     }
 
+    /// Mid grip or weapon change, before the point other actions are allowed.
+    pub fn swap_busy(&self) -> bool {
+        self.swap.is_some_and(|swap| {
+            let def = swap.kind.def();
+            swap.f < def.start_len + def.free_from
+        })
+    }
+
     fn sprint_held(&self, inp: &Input) -> bool {
         inp.dodge.held && self.dodge_hold >= SPRINT_HOLD_FRAMES
     }
@@ -375,7 +407,9 @@ impl Player {
     fn ground(&mut self, inp: &Input, level: &Level, target: Option<Vec3>) -> bool {
         let wish = inp.wish();
 
-        if let Some(req) = self.buffer.take() {
+        // Hands that are busy changing grip cannot start anything; the press waits.
+        if self.swap_busy() {
+        } else if let Some(req) = self.buffer.take() {
             if self.stamina > 0.0 {
                 use AttackKind::*;
                 let attack = match req {
@@ -401,16 +435,31 @@ impl Player {
             }
         }
 
-        // Changing grip or weapon only happens from a neutral stance.
-        if inp.two_hand_right {
-            self.grip = if self.grip == Grip::TwoHandRight { Grip::OneHand } else { Grip::TwoHandRight };
-        }
-        if inp.two_hand_left {
-            self.grip = if self.grip == Grip::TwoHandLeft { Grip::OneHand } else { Grip::TwoHandLeft };
-        }
-        if inp.next_weapon {
-            // The shield is the last entry and stays in the left hand.
-            self.weapon = (self.weapon + 1) % SHIELD;
+        // Changing grip or weapon only starts from a neutral stance, one at a time.
+        if self.swap.is_none() {
+            let back = match self.grip {
+                Grip::TwoHandLeft => SwapKind::ToOneHandFromLeft,
+                _ => SwapKind::ToOneHandFromRight,
+            };
+            let change = if inp.two_hand_right {
+                Some(match self.grip {
+                    Grip::TwoHandRight => (back, Grip::OneHand, self.weapon),
+                    _ => (SwapKind::ToTwoHandRight, Grip::TwoHandRight, self.weapon),
+                })
+            } else if inp.two_hand_left {
+                Some(match self.grip {
+                    Grip::TwoHandLeft => (back, Grip::OneHand, self.weapon),
+                    _ => (SwapKind::ToTwoHandLeft, Grip::TwoHandLeft, self.weapon),
+                })
+            } else if inp.next_weapon {
+                // The shield is the last entry and stays in the left hand.
+                Some((SwapKind::NextWeapon, self.grip, (self.weapon + 1) % SHIELD))
+            } else {
+                None
+            };
+            if let Some((kind, grip, weapon)) = change {
+                self.swap = Some(Swap { kind, f: 0.0, grip, weapon, applied: false });
+            }
         }
 
         if inp.crouch {
@@ -869,6 +918,8 @@ impl Player {
             return HitResult::Blocked;
         }
 
+        // Being hit knocks a grip change out of the hands.
+        self.swap = None;
         self.hp -= hit.damage;
         if self.hp <= 0.0 {
             self.die();
@@ -898,6 +949,7 @@ impl Player {
         self.crouching = false;
         self.buffer = None;
         self.air_attack = None;
+        self.swap = None;
         self.state = State::Dead { t: 0.0 };
     }
 }

@@ -72,13 +72,16 @@ def write_tree(f, tree):
             write_tree(f, child)
 
 
+def missing_banks():
+    """The sound banks that have not been unpacked, if any."""
+    return [name for name in BANKS if not (paths.er_files() / name).exists()]
+
+
 def main():
-    banks = []
-    for name in BANKS:
-        path = paths.er_files() / name
-        if not path.exists():
-            sys.exit(f"{path} is missing: unpack the sd archive's {name} too (see README)")
-        banks.append(wwise.Bank(path.read_bytes()))
+    missing = missing_banks()
+    if missing:
+        sys.exit("Missing from %s: %s\nUnpack them from the sd archive too (see README)." % (paths.er_files(), ", ".join(missing)))
+    banks = [wwise.Bank((paths.er_files() / name).read_bytes()) for name in BANKS]
 
     src = Source()
     gathered = gather(src)

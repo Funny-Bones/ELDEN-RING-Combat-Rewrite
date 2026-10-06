@@ -251,7 +251,7 @@ fn debug_text(world: &crate::sim::World) -> String {
          speed {:.1} m/s   height {:.1} m\n\
          {}\n\
          load: {:?}   {}\n\
-         {}{}{}{}\n\
+         {}{}{}{}{}\n\
          queued: {}",
         p.speed,
         p.pos.y,
@@ -266,6 +266,7 @@ fn debug_text(world: &crate::sim::World) -> String {
         flag(p.active_hit().is_some(), "[HIT ACTIVE] "),
         flag(p.guard_counter_ready(), "[GUARD COUNTER] "),
         flag(world.locked, "[LOCKED ON] "),
+        flag(p.swap.is_some(), "[CHANGING GRIP] "),
         p.buffer.map_or("-".to_string(), |req| format!("{req:?}")),
     )
 }

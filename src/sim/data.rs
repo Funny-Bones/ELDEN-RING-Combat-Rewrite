@@ -32,11 +32,15 @@ pub const GUARD_REGEN_MULT: f32 = 0.5;
 /// Sprint drain per second. Only applies while an enemy is hostile: out of
 /// combat sprinting is free.
 pub const SPRINT_DRAIN: f32 = 11.0;
-pub const ROLL_COST: f32 = 12.0;
-pub const BACKSTEP_COST: f32 = 6.0;
-pub const JUMP_COST: f32 = 14.0;
 /// Share of incoming stamina damage a raised shield lets through.
 pub const GUARD_STAMINA_TAKEN: f32 = 0.55;
+
+// --- Stamina costs, from the game's shared script constants ----------------
+// (STAMINA_REDUCE_ROLLING / _BACKSTEP / _JUMP in common_define.hks)
+
+pub const ROLL_COST: f32 = 12.0;
+pub const BACKSTEP_COST: f32 = 8.0;
+pub const JUMP_COST: f32 = 10.0;
 
 // --- Locomotion (ESTIMATE, speeds themselves are extracted) -----------------
 
@@ -151,6 +155,42 @@ pub enum Grip {
     TwoHandRight,
     /// Left-hand armament (the shield) in both hands; the weapon is put away.
     TwoHandLeft,
+}
+
+/// A change of grip or weapon. Each has its own pair of animations.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SwapKind {
+    ToTwoHandRight,
+    ToTwoHandLeft,
+    ToOneHandFromRight,
+    ToOneHandFromLeft,
+    NextWeapon,
+}
+
+impl SwapKind {
+    pub fn def(self) -> SwapDef {
+        extracted::swap(self)
+    }
+}
+
+/// Timing of a grip or weapon change, in frames: a `start` animation during
+/// which the change takes effect, then an `end` animation.
+#[derive(Clone, Copy, Debug)]
+pub struct SwapDef {
+    pub start: &'static str,
+    pub end: &'static str,
+    pub start_len: f32,
+    pub end_len: f32,
+    /// Frame of `start` on which the new grip or weapon is in hand.
+    pub apply: f32,
+    /// Frame of `end` from which other actions are allowed again.
+    pub free_from: f32,
+}
+
+impl SwapDef {
+    pub fn total(&self) -> f32 {
+        self.start_len + self.end_len
+    }
 }
 
 /// Which set of attack animations applies: a weapon and how it is held.
@@ -337,7 +377,7 @@ impl ActionId {
     }
 
     /// Stamina taken when the action starts, on top of anything its hit costs.
-    /// ESTIMATE: these are constants in a shared script that is not unpacked.
+    /// These are the game's own constants; see `ROLL_COST` and friends.
     pub fn start_cost(self) -> f32 {
         match self {
             ActionId::Roll(..) | ActionId::CrouchRoll(..) => ROLL_COST,

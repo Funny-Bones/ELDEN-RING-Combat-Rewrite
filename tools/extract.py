@@ -120,7 +120,20 @@ REACTIONS = [
     ("GuardHit", "a00", 4200),
     ("GuardBreak", "a00", 4270),
 ]
-PACKS_REACTIONS = ("c0000_a00_md", "c0000_a00_lo")
+PACKS_REACTIONS = ("c0000_a00_md", "c0000_a00_lo")  # also hold the swap clips
+
+# Changing grip or weapon: (Rust variant, start animation, end animation).
+# Each is a short reach for the weapon, during which the change takes effect,
+# followed by a settle. The game plays them on the upper body only. Which end
+# follows which start is inferred from how the animations borrow each other.
+SWAPS = [
+    ("ToTwoHandRight", 29060, 29070),
+    ("ToTwoHandLeft", 29080, 29090),
+    ("ToOneHandFromRight", 29040, 29050),
+    ("ToOneHandFromLeft", 29010, 29020),
+    ("NextWeapon", 29000, 29020),
+]
+EVENT_SET_STYLE, EVENT_SWITCH_WEAPON = 32, 33
 
 # Looping locomotion: speed is root-motion distance over duration.
 SPEEDS = [
@@ -329,6 +342,22 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
     return "ActionDef { " + ", ".join(fields) + " }"
 
 
+def swap_def(src, start, end):
+    """Rust `SwapDef { .. }` literal for one grip or weapon change."""
+    start_anim, end_anim = src.anim("a00", start), src.anim("a00", end)
+    start_len = hkanim.Animation(src.hkx[src.hkx_name("a00", start)]).frames_at_30fps()
+    end_len = hkanim.Animation(src.hkx[src.hkx_name("a00", end)]).frames_at_30fps()
+    applies = [frames(e.start) for e in start_anim.events if e.type in (EVENT_SET_STYLE, EVENT_SWITCH_WEAPON)]
+    return 'SwapDef { start: "%s", end: "%s", start_len: %.1f, end_len: %.1f, apply: %.1f, free_from: %.1f }' % (
+        clip_name("a00", start),
+        clip_name("a00", end),
+        start_len,
+        end_len,
+        applies[0],
+        first(end_anim, F_CANCEL_RH),
+    )
+
+
 def gather(src):
     """Everything the generator and the animation baker need, in one pass."""
     weapons = []
@@ -380,7 +409,8 @@ def main():
         "//! AtkParam_Pc.",
         "",
         "use super::data::{",
-        "    ActionDef, ActionId, AirAttackDef, AttackKind, Dir, Hit, HurtLevel, JumpKind, Load, WeaponInfo, NEVER,",
+        "    ActionDef, ActionId, AirAttackDef, AttackKind, Dir, Hit, HurtLevel, JumpKind, Load, SwapDef, SwapKind,",
+        "    WeaponInfo, NEVER,",
         "};",
         "",
     ]
@@ -439,6 +469,16 @@ def main():
             % (index, str(two_hand).lower(), str(heavy).lower(), start, end, cost, clip_name(file, anim_id))
         )
     out += ["        _ => return None,", "    })", "}", ""]
+
+    out += [
+        "/// Grip and weapon changes.",
+        "#[rustfmt::skip]",
+        "pub fn swap(kind: SwapKind) -> SwapDef {",
+        "    match kind {",
+    ]
+    for variant, start, end in SWAPS:
+        out.append("        SwapKind::%s => %s," % (variant, swap_def(src, start, end)))
+    out += ["    }", "}", ""]
 
     OUT.write_text("\n".join(out), encoding="utf-8", newline="\n")
     print("wrote", OUT, "-", len(attacks), "attacks,", len(air), "air attacks")

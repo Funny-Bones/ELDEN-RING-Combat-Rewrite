@@ -28,6 +28,11 @@ print("1/3  Extracting action data...")
 extract.main()
 print("2/3  Baking animations...")
 bake_anims.main()
-print("3/3  Baking sounds...")
-bake_sounds.main()
+# Sound is optional: without the banks the sandbox runs silent.
+missing = bake_sounds.missing_banks()
+if missing:
+    print("3/3  Skipping sounds: %s not unpacked (see README). The sandbox will run silent." % ", ".join(missing))
+else:
+    print("3/3  Baking sounds...")
+    bake_sounds.main()
 print("\nDone. Start the sandbox with:  cargo run")
