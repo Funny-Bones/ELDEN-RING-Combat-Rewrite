@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 SOUND, ACTION, EVENT, RANSEQ, SWITCH, ACTOR_MIXER, LAYER = 2, 3, 4, 5, 6, 7, 9
 ACTION_PLAY = 0x0403
 PROP_VOLUME = 0x00  # dB
+PROP_PITCH = 0x02  # cents
 
 
 def fnv1(name):
@@ -33,21 +34,45 @@ class Node:
     media: int = 0  # sounds: the .wem they play
     stream: int = 0  # sounds: 0 in a bank, 1 prefetched, 2 streamed
     volume: float = 0.0  # dB, relative to the parent
+    pitch: float = 0.0  # cents, relative to the parent
+    volume_range: tuple = (0.0, 0.0)  # random offset each time it plays, dB
+    pitch_range: tuple = (0.0, 0.0)  # cents
 
 
-def _base_params(body, at):
-    """(DirectParentID, volume in dB) from the NodeBaseParams starting at `at`."""
+@dataclass
+class Mix:
+    """How loud and at what pitch a recording plays, summed up its hierarchy
+    as Wwise adds them: a fixed level plus a random offset drawn each time."""
+    volume: float = 0.0
+    volume_range: tuple = (0.0, 0.0)
+    pitch: float = 0.0
+    pitch_range: tuple = (0.0, 0.0)
+
+
+def _base_params(node, body, at):
+    """Fills in `node`'s parent, level and pitch from the NodeBaseParams starting at `at`."""
     fx = body[at + 1]
     at += 2 + (1 + 7 * fx if fx else 0)
     at += 1  # bOverrideAttachmentParams
-    _bus, parent = struct.unpack_from("<II", body, at)
+    _bus, node.parent = struct.unpack_from("<II", body, at)
     at += 8 + 1  # byBitVector
+    # Fixed properties: a count, the property ids, then a float each.
     count = body[at]
-    volume = 0.0
     for i, prop in enumerate(body[at + 1:at + 1 + count]):
+        value, = struct.unpack_from("<f", body, at + 1 + count + 4 * i)
         if prop == PROP_VOLUME:
-            volume, = struct.unpack_from("<f", body, at + 1 + count + 4 * i)
-    return parent, volume
+            node.volume = value
+        elif prop == PROP_PITCH:
+            node.pitch = value
+    at += 1 + 5 * count
+    # Randomised ones: a count, the property ids, then a (min, max) each.
+    count = body[at]
+    for i, prop in enumerate(body[at + 1:at + 1 + count]):
+        bounds = struct.unpack_from("<ff", body, at + 1 + count + 8 * i)
+        if prop == PROP_VOLUME:
+            node.volume_range = bounds
+        elif prop == PROP_PITCH:
+            node.pitch_range = bounds
 
 
 class Bank:
@@ -93,9 +118,9 @@ class Bank:
                     node.media, node.stream = media, stream
                     if plugin & 0xF != 1:
                         node.media = 0  # a generator (silence, tone), not a file
-                    node.parent, node.volume = _base_params(b, at)
+                    _base_params(node, b, at)
                 elif node.kind in (RANSEQ, SWITCH, LAYER, ACTOR_MIXER):
-                    node.parent, node.volume = _base_params(b, 0)
+                    _base_params(node, b, 0)
             except struct.error:
                 continue
         for node in self.objects.values():
@@ -117,8 +142,9 @@ class Bank:
                     targets.append(target)
         return targets
 
-    def _switch_items(self, node):
-        """Children a switch container plays for its default switch."""
+    def _switch_items(self, node, switches):
+        """Children a switch container plays: for the switch `switches` (group
+        hash -> switch hash) chooses in its group, else its default."""
         b = node.body
         children = sorted(node.children)
         # The children list sits just before the switch list: a count, then the IDs in order.
@@ -126,7 +152,8 @@ class Bank:
         at = b.find(needle)
         if at < 9 or not children:
             return children[:1]
-        default, = struct.unpack_from("<I", b, at - 5)
+        group, default = struct.unpack_from("<II", b, at - 9)
+        default = switches.get(group, default)
         q = at + len(needle)
         groups, = struct.unpack_from("<I", b, q)
         q += 4
@@ -140,43 +167,48 @@ class Bank:
             found.append(ids)
         return found[0] if found else children[:1]
 
-    def loudness(self, oid):
-        """A node's volume in dB: its own plus every ancestor's, as Wwise adds them up."""
-        db, seen = 0.0, set()
+    def mix(self, oid):
+        """A node's Mix: its own plus every ancestor's."""
+        mix, seen = Mix(), set()
         while oid in self.objects and oid not in seen:
             seen.add(oid)
             node = self.objects[oid]
-            db += node.volume
+            mix.volume += node.volume
+            mix.pitch += node.pitch
+            mix.volume_range = (mix.volume_range[0] + node.volume_range[0], mix.volume_range[1] + node.volume_range[1])
+            mix.pitch_range = (mix.pitch_range[0] + node.pitch_range[0], mix.pitch_range[1] + node.pitch_range[1])
             oid = node.parent
-        return db
+        return mix
 
-    def tree(self, oid, depth=0):
+    def tree(self, oid, switches=None, depth=0):
         """What playing object `oid` plays, as a tree:
-        ("media", id, dB) | ("random", [tree...]) | ("all", [tree...])."""
+        ("media", id, Mix) | ("random", [tree...]) | ("all", [tree...]).
+        `switches` picks switch containers' options (group hash -> switch hash)."""
+        switches = switches or {}
         node = self.objects.get(oid)
         if node is None or depth > 16:
             return None
         if node.kind == SOUND:
-            return ("media", node.media, self.loudness(oid)) if node.media else None
+            return ("media", node.media, self.mix(oid)) if node.media else None
         if node.kind == RANSEQ:
             items = node.children
             kind = "random"
         elif node.kind == SWITCH:
-            items, kind = self._switch_items(node), "all"
+            items, kind = self._switch_items(node, switches), "all"
         elif node.kind in (LAYER, ACTOR_MIXER):
             items, kind = node.children, "all"
         else:
             return None
-        subtrees = [t for t in (self.tree(c, depth + 1) for c in items) if t]
+        subtrees = [t for t in (self.tree(c, switches, depth + 1) for c in items) if t]
         if not subtrees:
             return None
         return subtrees[0] if len(subtrees) == 1 else (kind, subtrees)
 
-    def event_tree(self, name):
+    def event_tree(self, name, switches=None):
         event = self.event(name)
         if event is None:
             return None
-        subtrees = [t for t in (self.tree(t) for t in self.play_targets(event)) if t]
+        subtrees = [t for t in (self.tree(t, switches) for t in self.play_targets(event)) if t]
         if not subtrees:
             return None
         return subtrees[0] if len(subtrees) == 1 else ("all", subtrees)

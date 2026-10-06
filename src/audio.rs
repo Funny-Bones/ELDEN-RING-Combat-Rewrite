@@ -1,7 +1,8 @@
 //! The player's sounds, as baked by `tools/bake_sounds.py`: per clip, the
 //! frames its sound events fire on, and per sound, the game's choice of what
-//! to play (one of several recordings, several at once, each at the volume
-//! its Wwise mix gives it). The recordings are `assets/sounds/<id>.ogg`.
+//! to play (one of several recordings, several at once), each at the level and
+//! pitch its Wwise mix gives it, varied a little every time as the game does.
+//! The recordings are `assets/sounds/<id>.ogg`.
 
 use std::collections::HashMap;
 use std::fs;
@@ -17,8 +18,19 @@ pub const PATH: &str = "assets/player_sounds.bin";
 /// Overall level on top of each sound's own mix.
 const MASTER_DB: f32 = 0.0;
 
+/// One recording and how it plays: a fixed level and pitch, plus a random
+/// offset within a range drawn each time.
+#[derive(Clone, Copy, Debug)]
+struct Recording {
+    id: u32,
+    db: f32,
+    db_range: (f32, f32),
+    cents: f32,
+    cents_range: (f32, f32),
+}
+
 enum Tree {
-    Media(u32, f32),
+    Media(Recording),
     Random(Vec<Tree>),
     All(Vec<Tree>),
 }
@@ -67,7 +79,13 @@ impl Cursor<'_> {
 
     fn tree(&mut self) -> io::Result<Tree> {
         Ok(match self.u8()? {
-            0 => Tree::Media(self.u32()?, self.f32()?),
+            0 => Tree::Media(Recording {
+                id: self.u32()?,
+                db: self.f32()?,
+                db_range: (self.f32()?, self.f32()?),
+                cents: self.f32()?,
+                cents_range: (self.f32()?, self.f32()?),
+            }),
             kind => {
                 let n = self.u16()?;
                 let children = (0..n).map(|_| self.tree()).collect::<io::Result<Vec<_>>>()?;
@@ -88,7 +106,10 @@ impl Sounds {
         if c.bytes(4)? != b"ERSD" {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "not a baked sound file"));
         }
-        let _version = c.u32()?;
+        let version = c.u32()?;
+        if version != 2 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("sound file version {version}, expected 2: bake it again")));
+        }
         let trees = (0..c.u32()?).map(|_| c.tree()).collect::<io::Result<Vec<_>>>()?;
         let mut clips = HashMap::new();
         for _ in 0..c.u32()? {
@@ -104,17 +125,31 @@ impl Sounds {
 }
 
 /// xorshift: plenty to pick one of a handful of recordings.
-fn random(rng: &mut u32, n: usize) -> usize {
+fn next(rng: &mut u32) -> u32 {
     *rng ^= *rng << 13;
     *rng ^= *rng >> 17;
     *rng ^= *rng << 5;
-    *rng as usize % n
+    *rng
 }
 
-/// The recordings a sound plays this time: (id, dB).
-fn pick(tree: &Tree, rng: &mut u32, out: &mut Vec<(u32, f32)>) {
+fn random(rng: &mut u32, n: usize) -> usize {
+    next(rng) as usize % n
+}
+
+/// Uniform in `range`.
+fn within(rng: &mut u32, (low, high): (f32, f32)) -> f32 {
+    low + (high - low) * (next(rng) as f32 / u32::MAX as f32)
+}
+
+/// The recordings a sound plays this time: (id, dB, playback speed).
+fn pick(tree: &Tree, rng: &mut u32, out: &mut Vec<(u32, f32, f32)>) {
     match tree {
-        Tree::Media(id, db) => out.push((*id, *db)),
+        Tree::Media(r) => {
+            let db = r.db + within(rng, r.db_range);
+            let cents = r.cents + within(rng, r.cents_range);
+            // Wwise pitch is in cents: 1200 to the octave, and playing faster raises it.
+            out.push((r.id, db, 2f32.powf(cents / 1200.0)));
+        }
         Tree::All(children) => children.iter().for_each(|child| pick(child, rng, out)),
         Tree::Random(children) => {
             let i = random(rng, children.len());
@@ -161,9 +196,12 @@ pub fn play(mut commands: Commands, sounds: Option<ResMut<Sounds>>, rig: Res<Rig
     if !recordings.is_empty() {
         debug!("{clip} frame {frame:.1}: playing {recordings:?}");
     }
-    for (id, db) in recordings {
+    for (id, db, speed) in recordings {
         let handle = handles.entry(id).or_insert_with(|| assets.load(format!("sounds/{id}.ogg"))).clone();
-        commands.spawn((AudioPlayer::new(handle), PlaybackSettings::DESPAWN.with_volume(Volume::Decibels(db + MASTER_DB))));
+        commands.spawn((
+            AudioPlayer::new(handle),
+            PlaybackSettings::DESPAWN.with_volume(Volume::Decibels(db + MASTER_DB)).with_speed(speed),
+        ));
     }
 }
 
@@ -209,7 +247,27 @@ mod tests {
             return;
         };
         assert!(sounds.clips.values().flatten().all(|&(_, sound)| sound < sounds.trees.len()));
-        // Running plays footsteps.
+        // Running plays footsteps; a heavy landing thuds.
         assert!(!sounds.clips["a000_020100"].is_empty());
+        assert!(!sounds.clips["a000_202310"].is_empty());
+    }
+}
+
+#[cfg(test)]
+mod mix_tests {
+    use super::*;
+
+    #[test]
+    fn variation_stays_in_range_and_pitch_is_in_cents() {
+        let tree = Tree::Media(Recording { id: 1, db: -10.0, db_range: (-2.0, 0.0), cents: -1200.0, cents_range: (-100.0, 100.0) });
+        let mut rng = 0x1234_5678;
+        for _ in 0..200 {
+            let mut out = Vec::new();
+            pick(&tree, &mut rng, &mut out);
+            let (_, db, speed) = out[0];
+            assert!((-12.0..=-10.0).contains(&db), "{db}");
+            // An octave down, give or take a semitone: about half speed.
+            assert!(speed > 0.47 && speed < 0.53, "{speed}");
+        }
     }
 }

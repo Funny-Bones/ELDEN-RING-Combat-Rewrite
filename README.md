@@ -53,9 +53,12 @@ Still estimated (all marked `ESTIMATE` in `src/sim/data.rs`):
 - Locomotion acceleration and turn rates.
 - Hit shapes: a wedge in front of the character, not the game's capsules.
 
-Sound is the player's alone and not positional; floor and armour materials
-always use the game's default (Wwise's default switch), and the few weapon
-classes whose swings live in banks outside `cs_main` swing silently.
+Sound is the player's alone and not positional. Where the game picks a sound
+from the surroundings, the sandbox bakes one choice: dirt underfoot, leather
+armour and cloth shoes (`FLOOR_MATERIAL`, `ARMOUR_MATERIAL` and `SWITCHES` in
+`tools/bake_sounds.py`). Pitch and level vary a little each time, as the game
+does. A few weapon classes whose swings live in banks outside `cs_main` swing
+silently.
 
 Not included: weapon skills, parrying, stat scaling, the two-handing damage
 bonus, weapon-swap animations, heavier hit reactions (knockdowns, launches),

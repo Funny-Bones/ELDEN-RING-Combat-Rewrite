@@ -8,8 +8,12 @@ resolves each event in the game's own sound banks to that choice tree, and
 converts every recording it can reach from Wwise Vorbis to Ogg Vorbis
 (losslessly; see wem.py).
 
-Weapon swings are weapon-specific: a weapon's sound offset (EquipParamWeapon)
-moves the id by 100 per step, and the swing for that weapon is tried first.
+The game fills some ids in from what the character stands on and wears:
+weapon swings move by 100 per step of the weapon's sound offset
+(EquipParamWeapon), floor sounds take the floor's material as their last two
+digits, and armour sounds add the armour's sound material. The sandbox has no
+such surroundings, so it bakes one choice of each (FLOOR_MATERIAL,
+ARMOUR_MATERIAL, SWITCHES below).
 
 Reads the unpacked sd/ banks; writes only derived files, which are not part
 of the repository. Usage: python tools/bake_sounds.py
@@ -31,13 +35,27 @@ MEDIA = ROOT / "assets" / "sounds"
 BANKS = ("sd/enus/cs_main.bnk", "sd/cs_smain.bnk")
 
 EVENT_SOUND = 129
-# TAE sound type -> Wwise event letter. 1: character (swings, footsteps on
-# the body, voice), 5: effects, 8: floor- and armour-dependent foley (the
-# material is a switch inside the event).
-LETTERS = {1: "c", 5: "s", 8: "c"}
+# TAE sound type -> Wwise event letter. 1: character (swings, body), 5:
+# effects, 8: floor-material sounds (footsteps, landings), 15: armour-material
+# sounds (armour movement, the thud of a heavy landing).
+LETTERS = {1: "c", 5: "s", 8: "c", 15: "c"}
+SOUND_CHARACTER, SOUND_FLOOR, SOUND_ARMOUR = 1, 8, 15
+# HitMtrlParam row of the ground: 1 is the game's generic "Stock", 2 Rock,
+# 3 Sand, 4 Wood, 5 Dirt. The animations name 1; the game swaps in the floor's.
+FLOOR_MATERIAL = 5
+# Armour sound material (EquipParamProtector, byte 0xA9): 55 leather (Brave's,
+# Beast Champion), 56 Raging Wolf, 57 robes, 58 chain, 59 knight plate.
+ARMOUR_MATERIAL = 55
+ARMOUR_MATERIALS = (55, 56, 57, 58, 59)
 # EquipParamWeapon.wepSeIdOffset (Paramdex lists it one byte later, at 0x238,
 # but its own neighbours sit one byte off there too).
 WEAPON_SE_OFFSET = 0x237
+
+# Wwise switches the game sets from the player's state: (group, option). The
+# sandbox character is armoured, so its feet get the soft "Cloth" footsteps
+# rather than the hard "Boots" the banks fall back on. The other option is
+# "Barefoot".
+SWITCHES = [("PlayerShoes", "Cloth")]
 
 TREE_MEDIA, TREE_RANDOM, TREE_ALL = 0, 1, 2
 
@@ -45,7 +63,9 @@ TREE_MEDIA, TREE_RANDOM, TREE_ALL = 0, 1, 2
 def write_tree(f, tree):
     kind, value = tree[0], tree[1]
     if kind == "media":
-        f.write(struct.pack("<BIf", TREE_MEDIA, value, tree[2]))
+        mix = tree[2]
+        f.write(struct.pack("<BI", TREE_MEDIA, value))
+        f.write(struct.pack("<6f", mix.volume, *mix.volume_range, mix.pitch, *mix.pitch_range))
     else:
         f.write(struct.pack("<BH", TREE_RANDOM if kind == "random" else TREE_ALL, len(value)))
         for child in value:
@@ -67,6 +87,7 @@ def main():
     for weapon, (_name, row_id) in zip(weapons, WEAPONS):
         se_offset.setdefault(weapon["file"], struct.unpack_from("<b", src.weapons[row_id], WEAPON_SE_OFFSET)[0])
 
+    switches = {wwise.fnv1(group): wwise.fnv1(option) for group, option in SWITCHES}
     trees = []  # unique choice trees
     tree_index = {}  # event name -> index into trees, or None if it plays nothing
     clips = []
@@ -74,7 +95,7 @@ def main():
 
     def resolve(name):
         if name not in tree_index:
-            tree = next((t for t in (bank.event_tree(name) for bank in banks) if t), None)
+            tree = next((t for t in (bank.event_tree(name, switches) for bank in banks) if t), None)
             tree_index[name] = None
             if tree is not None:
                 tree_index[name] = len(trees)
@@ -94,7 +115,15 @@ def main():
             letter = LETTERS.get(kind)
             if letter is None or sound < 0:
                 continue
-            candidates = [sound + offset * 100, sound] if offset and kind == 1 else [sound]
+            if kind == SOUND_CHARACTER:
+                candidates = [sound + offset * 100, sound] if offset else [sound]
+            elif kind == SOUND_FLOOR:
+                base = sound - sound % 100
+                candidates = [base + FLOOR_MATERIAL, sound]
+            elif kind == SOUND_ARMOUR:
+                candidates = [sound + m for m in (ARMOUR_MATERIAL, *ARMOUR_MATERIALS)] + [sound + FLOOR_MATERIAL, sound + 1]
+            else:
+                candidates = [sound]
             index = None
             for sid in candidates:
                 index = resolve("Play_%s%09d" % (letter, sid))
@@ -140,7 +169,7 @@ def main():
     OUT.parent.mkdir(exist_ok=True)
     with open(OUT, "wb") as f:
         f.write(b"ERSD")
-        f.write(struct.pack("<II", 1, len(trees)))
+        f.write(struct.pack("<II", 2, len(trees)))
         for tree in trees:
             write_tree(f, tree or ("all", []))
         f.write(struct.pack("<I", len(clips)))
