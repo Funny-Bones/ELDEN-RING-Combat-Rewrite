@@ -819,8 +819,6 @@ fn light_after_an_opener_continues_with_the_second_swing() {
 
 #[test]
 fn every_weapon_has_a_length_for_its_reach() {
-    // WEAPON_LENGTH is kept by hand, in the generator's weapon order.
-    assert_eq!(WEAPON_LENGTH.len(), WEAPONS.len());
     assert_eq!(WEAPONS[SHIELD].name, "Shield");
     assert_eq!(SHIELD, WEAPONS.len() - 1);
 }
@@ -955,4 +953,71 @@ fn the_dummy_escalates_through_its_attacks() {
     }
     use HurtLevel::*;
     assert_eq!(seen, [Middle, Small, Large, Knockdown]);
+}
+
+#[test]
+fn landing_a_hit_freezes_both_sides_for_the_attacks_hit_stop() {
+    let mut w = world();
+    w.player.pos = Vec3::new(0.0, 0.0, 6.5);
+    w.step(&Input { light: DOWN, ..idle() });
+    let hit = id(&w).unwrap().def().hits[0];
+    assert_eq!(hit.stop, 0.08);
+    while w.player.hit_stop <= 0.0 {
+        w.step(&idle());
+    }
+    let (_, frozen_at) = action(&w).unwrap();
+    assert!(w.dummy.hit_stop > 0.0, "the target freezes too");
+    assert!(frozen_at >= hit.from && frozen_at < hit.to);
+    let mut ticks = 0;
+    while w.player.hit_stop > 0.0 {
+        w.step(&idle());
+        ticks += 1;
+        assert_eq!(action(&w).unwrap().1, frozen_at, "the swing holds still");
+    }
+    assert_eq!(ticks, 5, "0.08 s at 60 Hz");
+    w.step(&idle());
+    assert!(action(&w).unwrap().1 > frozen_at, "then it carries on");
+
+    // A swing that hits nothing never stops.
+    let mut w = world();
+    w.step(&Input { light: DOWN, ..idle() });
+    for _ in 0..80 {
+        w.step(&idle());
+        assert_eq!(w.player.hit_stop, 0.0);
+    }
+}
+
+#[test]
+fn a_swing_only_hits_when_the_blade_reaches_the_target() {
+    // From here the sword cuts the air in front of the dummy.
+    let mut w = world();
+    w.player.pos = Vec3::new(0.0, 0.0, 2.5);
+    w.step(&Input { light: DOWN, ..idle() });
+    run(&mut w, idle(), 120);
+    assert_eq!(w.dummy.hp, super::dummy::MAX_HP, "out of reach");
+
+    // In reach, the hit lands at the moment the blade gets there, which is
+    // after the hit window opens: the sword starts the window behind the shoulder.
+    let mut w = world();
+    w.player.pos = Vec3::new(0.0, 0.0, 6.5);
+    w.step(&Input { light: DOWN, ..idle() });
+    let hit = id(&w).unwrap().def().hits[0];
+    while w.dummy.hp == super::dummy::MAX_HP {
+        w.step(&idle());
+    }
+    let (_, f) = action(&w).unwrap();
+    assert!(f > hit.from && f < hit.to, "landed at frame {f} of {}..{}", hit.from, hit.to);
+    let (a, b) = blade_at(hit.blade, hit.from, f).unwrap();
+    let tip = w.player.pos + Vec3::new(b.x, b.y, b.z);
+    let grip = w.player.pos + Vec3::new(a.x, a.y, a.z);
+    let near = super::segment_distance(grip, tip, w.dummy.pos, w.dummy.pos + Vec3::Y * super::dummy::HEIGHT);
+    assert!(near <= hit.radius + super::dummy::RADIUS + 0.05, "blade is {near} m from the dummy's middle");
+
+    // Standing beside the swing's path is not enough: a thrust past the dummy misses.
+    let mut w = world();
+    w.player.weapon = WEAPONS.iter().position(|info| info.name == "Rapier").unwrap();
+    w.player.pos = Vec3::new(2.0, 0.0, 6.5);
+    w.step(&Input { light: DOWN, ..idle() });
+    run(&mut w, idle(), 120);
+    assert_eq!(w.dummy.hp, super::dummy::MAX_HP, "the thrust goes past");
 }

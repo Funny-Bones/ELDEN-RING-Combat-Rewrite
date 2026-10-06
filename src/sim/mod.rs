@@ -35,6 +35,20 @@ pub fn turn_toward(yaw: f32, goal: f32, max_step: f32) -> f32 {
     yaw + angle_diff(yaw, goal).clamp(-max_step, max_step)
 }
 
+/// Shortest distance between the segments a-b and c-d.
+pub fn segment_distance(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> f32 {
+    let (u, v, w) = (b - a, d - c, a - c);
+    let (uu, uv, vv, uw, vw) = (u.dot(u), u.dot(v), v.dot(v), u.dot(w), v.dot(w));
+    let denom = uu * vv - uv * uv;
+    // Closest point on a-b to the line through c-d, then on c-d to that, then back.
+    let mut s = if denom > 1e-8 { ((uv * vw - vv * uw) / denom).clamp(0.0, 1.0) } else { 0.0 };
+    let t = if vv > 1e-8 { ((uv * s + vw) / vv).clamp(0.0, 1.0) } else { 0.0 };
+    if uu > 1e-8 {
+        s = ((uv * t - uw) / uu).clamp(0.0, 1.0);
+    }
+    (a + u * s).distance(c + v * t)
+}
+
 pub fn approach(value: f32, goal: f32, max_step: f32) -> f32 {
     value + (goal - value).clamp(-max_step, max_step)
 }
@@ -148,18 +162,24 @@ impl World {
         if !self.dummy.alive() {
             return;
         }
-        let p = &self.player;
-        let to = Vec3::new(self.dummy.pos.x - p.pos.x, 0.0, self.dummy.pos.z - p.pos.z);
-        let in_reach = to.length() <= hit.range + dummy::RADIUS;
-        let in_arc = to.normalize_or_zero().dot(p.facing()) >= hit.half_angle.to_radians().cos();
-        let in_height = (p.pos.y - self.dummy.pos.y).abs() < 2.2;
-        if !(in_reach && in_arc && in_height) {
+        // The blade has to actually reach the dummy: its body or its head.
+        let at = self.dummy.pos;
+        let (feet, shoulders) = (at + Vec3::Y * dummy::RADIUS, at + Vec3::Y * (dummy::HEIGHT - dummy::RADIUS));
+        let head = at + Vec3::Y * dummy::HEAD_HEIGHT;
+        let touches = |&(a, b): &(Vec3, Vec3)| {
+            segment_distance(a, b, feet, shoulders) <= hit.radius + dummy::RADIUS
+                || segment_distance(a, b, head, head) <= hit.radius + dummy::HEAD_RADIUS
+        };
+        if !hit.sweep.iter().any(touches) {
             return;
         }
         let damage = hit.attack * hit.mv;
         // The dummy's poise is our own invention; scale it off the attack's weight.
         let outcome = self.dummy.take_hit(damage, hit.guard_damage * 5.0);
         self.player.mark_hit();
+        // The blow lands: both freeze for a moment before carrying on.
+        self.player.hit_stop = hit.stop;
+        self.dummy.hit_stop = hit.stop;
         self.log.push(format!("Hit for {damage:.0}{outcome}"));
     }
 }

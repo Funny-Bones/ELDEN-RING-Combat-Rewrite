@@ -9,6 +9,10 @@ use super::player::Incoming;
 use super::{dir_of, turn_toward, yaw_of};
 
 pub const RADIUS: f32 = 0.5;
+/// Top of its body, and the ball of a head sitting on it.
+pub const HEIGHT: f32 = 2.3;
+pub const HEAD_HEIGHT: f32 = 2.45;
+pub const HEAD_RADIUS: f32 = 0.3;
 pub const MAX_HP: f32 = 1200.0;
 const MAX_POISE: f32 = 60.0;
 const AGGRO_RANGE: f32 = 4.2;
@@ -54,6 +58,8 @@ pub struct Dummy {
     pub evade_logged: bool,
     /// How hard the swing in progress knocks the player about.
     pub level: HurtLevel,
+    /// Seconds left frozen after being hit.
+    pub hit_stop: f32,
     next: u8,
     since_hit: f32,
 }
@@ -71,6 +77,7 @@ impl Dummy {
             connected: false,
             evade_logged: false,
             level: HurtLevel::Middle,
+            hit_stop: 0.0,
             next: 0,
             since_hit: 0.0,
         }
@@ -115,6 +122,10 @@ impl Dummy {
     }
 
     pub fn step(&mut self, player: Vec3, player_dead: bool) -> Option<Incoming> {
+        if self.hit_stop > 0.0 {
+            self.hit_stop -= DT;
+            return None;
+        }
         self.t += DT;
         self.since_hit += DT;
         if self.since_hit > 5.0 {

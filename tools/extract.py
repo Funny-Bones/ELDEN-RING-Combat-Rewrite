@@ -20,6 +20,7 @@ import param
 import paths
 import tae
 from erfmt import open_bnd
+from skel import fk, qrot
 
 SRC = paths.er_files()
 OUT = Path(__file__).parent.parent / "src" / "sim" / "extracted.rs"
@@ -59,6 +60,46 @@ WEAPONS = [
     ("Shield", 30000000),
 ]
 DEFAULT_WEAPON = "Longsword"
+
+# Thickness of the hit capsule around a weapon's striking line. ESTIMATE, and
+# deliberately not the game's (0.3-0.4 m): those fat capsules are met by slim
+# ones on the target's bones, whereas the sandbox's dummy is hit on its whole
+# visible body. With the game's value a swing would land well before the
+# weapon is seen to touch.
+BLADE_RADIUS = 0.1
+
+# The striking part of each weapon: a line between two points in the weapon
+# bone's frame, as (across, along), where "along" runs from the grip to the
+# tip. ESTIMATE: these follow the sandbox's stand-in models, because the
+# game's weapon models (which carry the real points) are not unpacked. Pole
+# weapons include a length of shaft, which hits in the game too.
+BLADES = {
+    "Dagger": ((0.0, 0.05), (0.0, 0.38)),
+    "Longsword": ((0.0, 0.1), (0.0, 0.96)),
+    "Claymore": ((0.0, 0.13), (0.0, 1.37)),
+    "Greatsword": ((0.0, 0.15), (0.0, 1.8)),
+    "Rapier": ((0.0, 0.1), (0.0, 1.08)),
+    "Uchigatana": ((0.0, 0.1), (0.0, 1.03)),
+    "Club": ((0.0, 0.2), (0.0, 0.57)),
+    "Battle Axe": ((0.0, 0.45), (0.12, 0.66)),
+    "Short Spear": ((0.0, 0.5), (0.0, 1.66)),
+    "Halberd": ((0.0, 0.6), (0.0, 1.85)),
+    "Heavy Thrusting Sword": ((0.0, 0.1), (0.0, 1.32)),
+    "Curved Sword": ((0.0, 0.1), (0.04, 0.9)),
+    "Curved Greatsword": ((0.0, 0.13), (0.06, 1.43)),
+    "Twinblade": ((0.0, -1.05), (0.0, 1.05)),
+    "Great Hammer": ((0.0, 0.85), (0.0, 1.16)),
+    "Flail": ((0.0, 0.5), (0.0, 0.74)),
+    "Greataxe": ((0.0, 0.75), (0.2, 1.12)),
+    "Great Spear": ((0.0, 0.8), (0.0, 2.26)),
+    "Reaper": ((0.0, 0.7), (0.45, 1.42)),
+    "Whip": ((0.0, 0.1), (0.0, 2.08)),
+    "Fist": ((0.0, -0.03), (0.0, 0.09)),
+    "Claw": ((0.0, 0.0), (0.0, 0.34)),
+    "Colossal Weapon": ((0.0, 0.9), (0.0, 1.56)),
+    "Torch": ((0.0, 0.2), (0.0, 0.53)),
+    "Shield": ((-0.28, 0.0), (0.28, 0.0)),
+}
 
 # One-handed animation ids; the two-handed set is the same ids plus 2000.
 ATTACKS = [
@@ -219,6 +260,31 @@ class Source:
         self.behavior = param.rows("BehaviorParam_PC")
         self.atk = param.rows("AtkParam_Pc")
         self.weapons = param.rows("EquipParamWeapon")
+        self.skeleton = None
+
+    def blade(self, file, anim_id, start, end, left_hand, span):
+        """Where the weapon's striking line is on every frame of a hit window:
+        [ax, ay, az, bx, by, bz] per frame, in the character's own space."""
+        if self.skeleton is None:
+            names, parents, rest = hkanim.skeleton(next(d for _, n, d in self.files if n.endswith("Skeleton.hkx")))
+            self.skeleton = (names, parents, rest)
+        names, parents, rest = self.skeleton
+        bone = names.index("L_Weapon" if left_hand else "R_Weapon")
+        anim = hkanim.Animation(self.hkx[self.hkx_name(file, anim_id)])
+        out = []
+        for frame in range(int(start), int(-(-end // 1)) + 1):
+            local = list(rest)
+            for b, transform in zip(anim.bones, anim.sample_seconds(frame / 30.0)):
+                local[b] = transform
+            position, rotation = fk(parents, local)[bone][:2]
+            across, along = qrot(rotation, (1, 0, 0)), qrot(rotation, (0, 1, 0))
+            row = []
+            for x, y in span:
+                point = [position[i] + across[i] * x + along[i] * y for i in range(3)]
+                # The game's space is mirrored front to back relative to the sandbox's.
+                row += [point[0], point[1], -point[2]]
+            out.append(row)
+        return out
 
     def table(self, file):
         if file not in self.tae:
@@ -274,7 +340,9 @@ class Source:
         }
 
     def judge(self, variation, judge_id):
-        """(stamina cost, motion value, guard stamina damage multiplier)."""
+        """(stamina cost, motion value, guard stamina damage multiplier,
+        seconds both sides freeze for when the hit lands, radius of the hit
+        capsule, whether it sits on the left-hand weapon)."""
         # Weapons without their own rows fall back to their class's.
         for var in (variation, variation // 100 * 100):
             row = self.behavior.get(100000000 + var * 1000 + judge_id)
@@ -289,7 +357,11 @@ class Source:
             return None
         (mv,) = struct.unpack_from("<H", atk, 0x3E)
         (stam_dmg,) = struct.unpack_from("<H", atk, 0x46)
-        return stamina, mv / 100.0, stam_dmg / 100.0
+        (hit_stop,) = struct.unpack_from("<f", atk, 0x14)
+        # Where the capsule is anchored: points numbered 10000-10999 are on
+        # the left-hand weapon's model.
+        (anchor,) = struct.unpack_from("<h", atk, 0x2C)
+        return stamina, mv / 100.0, stam_dmg / 100.0, hit_stop, BLADE_RADIUS, 10000 <= anchor < 11000
 
 
 def windows(anim, flag):
@@ -315,7 +387,7 @@ def blend_frames(src, file, anim_id):
     return blends[0] if blends else 4.0
 
 
-def action_def(src, name, file, anim_id, variation, reaction=False):
+def action_def(src, name, file, anim_id, variation, reaction=False, span=None):
     """Rust `ActionDef { .. }` literal for one animation, or None if it does not exist.
 
     Reactions carry no input window and their flags mean something narrower
@@ -364,11 +436,13 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
         if not got:
             print("  ! no behaviour row for", clip_name(file, anim_id), "judge", judge)
             continue
-        cost, mv, stam_dmg = got
+        cost, mv, stam_dmg, hit_stop, radius, left_hand = got
         if mv <= 0.0:
             continue
+        blade = src.blade(file, anim_id, start, end, left_hand, span)
         hit_list.append(
-            "Hit { from: %.1f, to: %.1f, mv: %.2f, guard_damage: %.2f, stamina: %.1f }" % (start, end, mv, stam_dmg, cost)
+            "Hit { from: %.1f, to: %.1f, mv: %.2f, guard_damage: %.2f, stamina: %.1f, stop: %.3f, radius: %.2f, blade: %s }"
+            % (start, end, mv, stam_dmg, cost, hit_stop, radius, blade_literal(blade))
         )
         if len(hit_list) == 1:
             stamina = float(cost)
@@ -398,6 +472,10 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
     return "ActionDef { " + ", ".join(fields) + " }"
 
 
+def blade_literal(blade):
+    return "&[" + ", ".join("[" + ", ".join("%.3f" % v for v in row) + "]" for row in blade) + "]"
+
+
 def swap_def(src, start, end):
     """Rust `SwapDef { .. }` literal for one grip or weapon change."""
     start_anim, end_anim = src.anim("a00", start), src.anim("a00", end)
@@ -421,16 +499,17 @@ def gather(src):
         info = src.weapon(row_id)
         info["name"] = name
         info["file"] = "a%d" % info["category"]
+        info["blade"] = BLADES[name]
         weapons.append(info)
 
     attacks = []  # (weapon index, two_hand, kind, literal, file, anim id)
-    air = []  # (weapon index, two_hand, heavy, from, to, cost, file, anim id)
+    air = []  # (weapon index, two_hand, heavy, from, to, cost, radius, blade, file, anim id)
     for index, weapon in enumerate(weapons):
         for two_hand in (False, True):
             offset = TWO_HAND_OFFSET if two_hand else 0
             for kind, base_id in ATTACKS:
                 anim_id = base_id + offset
-                literal = action_def(src, kind, weapon["file"], anim_id, weapon["variation"])
+                literal = action_def(src, kind, weapon["file"], anim_id, weapon["variation"], span=weapon["blade"])
                 if not literal:
                     continue
                 # A few paired-weapon attacks carry no hit event of their own.
@@ -447,8 +526,11 @@ def gather(src):
                     continue
                 start, end, judge = hit_events(anim)[0]
                 got = src.judge(weapon["variation"], judge)
-                cost = got[0] if got else 0
-                air.append((index, two_hand, heavy, start, end, cost, weapon["file"], anim_id))
+                if not got:
+                    continue
+                cost, radius, left_hand = got[0], got[4], got[5]
+                blade = src.blade(weapon["file"], anim_id, start, end, left_hand, weapon["blade"])
+                air.append((index, two_hand, heavy, start, end, cost, radius, blade, weapon["file"], anim_id))
     return weapons, attacks, air
 
 
@@ -522,10 +604,13 @@ def main():
         "pub fn air_attack(weapon: usize, two_hand: bool, heavy: bool) -> Option<AirAttackDef> {",
         "    Some(match (weapon, two_hand, heavy) {",
     ]
-    for index, two_hand, heavy, start, end, cost, file, anim_id in air:
+    for index, two_hand, heavy, start, end, cost, radius, blade, file, anim_id in air:
         out.append(
-            '        (%d, %s, %s) => AirAttackDef { from: %.1f, to: %.1f, stamina: %.1f, source: "%s" },'
-            % (index, str(two_hand).lower(), str(heavy).lower(), start, end, cost, clip_name(file, anim_id))
+            '        (%d, %s, %s) => AirAttackDef { from: %.1f, to: %.1f, stamina: %.1f, source: "%s", radius: %.2f, blade: %s },'
+            % (
+                index, str(two_hand).lower(), str(heavy).lower(), start, end, cost, clip_name(file, anim_id), radius,
+                blade_literal(blade),
+            )
         )
     out += ["        _ => return None,", "    })", "}", ""]
 

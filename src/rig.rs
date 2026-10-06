@@ -441,7 +441,9 @@ pub fn animate(
     let dt = time.delta_secs();
     let rig = &mut *rig;
 
-    let (name, frame, looped) = playing(player, rig, &clips, time.elapsed_secs(), dt, rendered.alpha * DF);
+    // Frozen on a hit, the pose holds dead still rather than running ahead of the tick.
+    let ahead = if player.hit_stop > 0.0 { 0.0 } else { rendered.alpha * DF };
+    let (name, frame, looped) = playing(player, rig, &clips, time.elapsed_secs(), dt, ahead);
     let Some(clip) = clips.get(&name) else {
         return;
     };

@@ -43,6 +43,9 @@ the tools here generate the data.
 - Running, rolling, backstep, crouch, jump and guard-counter attacks.
 - Attacks with several hits land every one of them, each with its own damage
   and stamina cost.
+- Hits land when the weapon itself reaches the target, not when the swing
+  starts: stand too far away, or beside a thrust, and it misses.
+- Hit-stop: attacker and target freeze for an instant when a blow lands.
 - Guarding, guard hits and guard break.
 - Hit reactions in four strengths and four directions: a flinch, a stagger, a
   large stagger, and a knockdown that throws you back, keeps you invincible
@@ -98,6 +101,7 @@ Read from the game's files:
 - Root motion for every action, and walk / run / sprint / crouch speeds.
 - Stamina costs (each hit of an attack, rolls, backsteps, jumps), motion
   values and each weapon's base attack.
+- Hit-stop time of every attack.
 - Max HP and stamina: the Vagabond starting class at its starting level,
   through the game's stat curves.
 - Changing grip or weapon: its animations and when the change takes effect.
@@ -111,7 +115,10 @@ Still estimated (all marked `ESTIMATE` in `src/sim/data.rs`):
 - Stamina regeneration and sprint drain.
 - Gravity after a jump's arc ends, and the fall-damage thresholds.
 - Locomotion acceleration and turn rates.
-- Hit shapes: a wedge in front of the character, not the game's capsules.
+- Hit shapes. A hit lands when a capsule along the weapon's striking part
+  touches the dummy, and the weapon follows the real animation, but where
+  that part sits on each weapon and how thick the capsule is follow the
+  sandbox's stand-in weapon models, not the game's.
 - The dummy: its attacks, damage and timing are made up for testing.
 
 Which animation belongs to which action is partly inferred from the data,

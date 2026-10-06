@@ -5,7 +5,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use bevy::prelude::*;
 
 use crate::sim::data::HurtLevel;
-use crate::sim::dummy::{DState, STRIKE, WINDUP};
+use crate::sim::dummy::{self, DState, STRIKE, WINDUP};
 use crate::Sim;
 
 const DUMMY_IDLE: Color = Color::srgb(0.5, 0.42, 0.3);
@@ -87,8 +87,8 @@ pub fn setup(
             ChildOf(parent),
         ));
     };
-    part(&mut commands, root, Capsule3d::new(0.5, 1.3).into(), Vec3::Y * 1.15);
-    part(&mut commands, root, Sphere::new(0.3).into(), Vec3::Y * 2.45);
+    part(&mut commands, root, Capsule3d::new(dummy::RADIUS, dummy::HEIGHT - 2.0 * dummy::RADIUS).into(), Vec3::Y * dummy::HEIGHT / 2.0);
+    part(&mut commands, root, Sphere::new(dummy::HEAD_RADIUS).into(), Vec3::Y * dummy::HEAD_HEIGHT);
     part(&mut commands, root, Cuboid::new(0.3, 0.08, 0.2).into(), Vec3::new(0.0, 2.48, 0.25));
     let arm = commands
         .spawn((Transform::from_xyz(-0.65, 1.7, 0.0), Visibility::default(), ChildOf(root)))

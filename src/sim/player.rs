@@ -148,9 +148,18 @@ pub struct ActiveHit {
     pub attack: f32,
     pub mv: f32,
     pub guard_damage: f32,
-    pub range: f32,
-    pub half_angle: f32,
+    /// Seconds both sides freeze for if it lands.
+    pub stop: f32,
+    /// Thickness of the hit capsule around the blade.
+    pub radius: f32,
+    /// Where the blade passed during this tick: its two ends, in the world,
+    /// at a few moments from the last tick to this one.
+    pub sweep: [(Vec3, Vec3); SWEEP_STEPS],
 }
+
+/// Positions of the blade checked per tick. A fast swing moves the tip a
+/// third of a metre in a tick, so one check would let it pass through things.
+pub const SWEEP_STEPS: usize = 5;
 
 const RESPAWN_FRAMES: f32 = 90.0;
 
@@ -174,6 +183,8 @@ pub struct Player {
     pub buffer: Option<Req>,
     pub air_attack: Option<AirAttack>,
     pub swap: Option<Swap>,
+    /// Seconds left frozen after landing a hit: the weapon biting.
+    pub hit_stop: f32,
     pub spawn: Vec3,
     guard_t: f32,
     guard_counter: f32,
@@ -207,6 +218,7 @@ impl Player {
             buffer: None,
             air_attack: None,
             swap: None,
+            hit_stop: 0.0,
             spawn,
             guard_t: 0.0,
             guard_counter: 0.0,
@@ -276,17 +288,21 @@ impl Player {
     /// The hit volume that is live this tick, if the current attack has not
     /// already connected.
     pub fn active_hit(&self) -> Option<ActiveHit> {
-        let build = |id: ActionId, moveset: Moveset, hit: Hit| {
-            let (range, half_angle) = id.reach();
-            ActiveHit { attack: moveset.info().attack, mv: hit.mv, guard_damage: hit.guard_damage, range, half_angle }
-        };
         if let Some(attack) = self.air_attack {
+            let def = attack.def;
+            let live = !attack.hit_done && attack.f >= def.from && attack.f < def.to;
+            // The airborne swing deals what its landing follow-through does.
             let kind = if attack.heavy { AttackKind::JumpHeavyLand } else { AttackKind::JumpLightLand };
-            let id = ActionId::Attack(attack.moveset, kind);
-            let live = !attack.hit_done && attack.f >= attack.def.from && attack.f < attack.def.to;
-            // The airborne swing uses the same hit as its landing follow-through.
-            let hit = attack.moveset.attack(kind).and_then(|def| def.hit())?;
-            return live.then(|| build(id, attack.moveset, hit));
+            let hit = attack.moveset.attack(kind).and_then(|landing| landing.hit())?;
+            let sweep = self.sweep(def.blade, def.from, attack.f)?;
+            return live.then_some(ActiveHit {
+                attack: attack.moveset.info().attack,
+                mv: hit.mv,
+                guard_damage: hit.guard_damage,
+                stop: hit.stop,
+                radius: def.radius,
+                sweep,
+            });
         }
         let State::Act(a) = self.state else {
             return None;
@@ -294,7 +310,29 @@ impl Player {
         let ActionId::Attack(moveset, _) = a.id else {
             return None;
         };
-        Self::live_hit(&a).map(|(_, hit)| build(a.id, moveset, hit))
+        let (_, hit) = Self::live_hit(&a)?;
+        Some(ActiveHit {
+            attack: moveset.info().attack,
+            mv: hit.mv,
+            guard_damage: hit.guard_damage,
+            stop: hit.stop,
+            radius: hit.radius,
+            sweep: self.sweep(hit.blade, hit.from, a.f)?,
+        })
+    }
+
+    /// The blade's path over the tick that ended at `frame`, in the world.
+    fn sweep(&self, blade: &[[f32; 6]], from: f32, frame: f32) -> Option<[(Vec3, Vec3); SWEEP_STEPS]> {
+        let (forward, left) = (self.facing(), self.left());
+        let place = |v: Vec3| self.pos + left * v.x + Vec3::Y * v.y + forward * v.z;
+        let start = (frame - DF).max(from);
+        let mut sweep = [(Vec3::ZERO, Vec3::ZERO); SWEEP_STEPS];
+        for (i, slot) in sweep.iter_mut().enumerate() {
+            let at = start + (frame - start) * i as f32 / (SWEEP_STEPS - 1) as f32;
+            let (a, b) = blade_at(blade, from, at)?;
+            *slot = (place(a), place(b));
+        }
+        Some(sweep)
     }
 
     /// The hit of the action whose window is open and which has not connected yet.
@@ -330,6 +368,11 @@ impl Player {
         }
 
         self.read_buttons(inp);
+        // Frozen on a hit: inputs are still heard, nothing else moves.
+        if self.hit_stop > 0.0 {
+            self.hit_stop -= DT;
+            return;
+        }
         self.guard_counter = (self.guard_counter - DF).max(0.0);
         if let Some(attack) = &mut self.air_attack {
             attack.f += DF;

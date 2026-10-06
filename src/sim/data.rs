@@ -10,6 +10,8 @@
 //! the player script's shared constants or in engine code, which the
 //! extractor does not read.
 
+use bevy::math::Vec3;
+
 use super::extracted;
 pub use super::extracted::{
     CROUCH_RUN_SPEED, CROUCH_WALK_SPEED, DEFAULT_WEAPON, MAX_HP, MAX_STAMINA, RUN_BACK_SPEED, RUN_SIDE_SPEED, RUN_SPEED, SHIELD,
@@ -162,16 +164,6 @@ pub struct WeaponInfo {
     pub stance: [u8; 2],
 }
 
-/// Blade length per weapon, metres, in `WEAPONS` order. ESTIMATE: used to
-/// draw the weapon and to size its hit wedge; the game's models and hit
-/// capsules are not extracted.
-pub const WEAPON_LENGTH: &[f32] = &[
-    0.35, 0.9, 1.3, 1.7, 1.0, 0.95, 0.6, 0.7, 1.9, 2.1, // dagger .. halberd
-    1.25, 0.85, 1.35, 1.0, 1.2, 0.8, 1.2, 2.3, 1.7, 2.2, // heavy thrusting sword .. whip
-    0.15, 0.3, 1.6, 0.5, // fist, claw, colossal weapon, torch
-    0.3, // shield
-];
-
 /// How the armaments are held.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Grip {
@@ -295,6 +287,9 @@ pub struct AirAttackDef {
     pub to: f32,
     pub stamina: f32,
     pub source: &'static str,
+    pub radius: f32,
+    /// As `Hit::blade`, for the swing in the air.
+    pub blade: &'static [[f32; 6]],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -308,6 +303,24 @@ pub struct Hit {
     pub guard_damage: f32,
     /// Stamina taken when this hit comes out.
     pub stamina: f32,
+    /// Seconds attacker and target both freeze for when it lands.
+    pub stop: f32,
+    /// Thickness of the hit capsule around the blade, metres.
+    pub radius: f32,
+    /// The blade's two ends on each frame from `from` (rounded down) to `to`
+    /// (rounded up), as [x, y, z, x, y, z] in the character's own space.
+    pub blade: &'static [[f32; 6]],
+}
+
+/// The ends of a blade at `frame`, in the character's own space, from samples
+/// that start at the frame `from` rounded down.
+pub fn blade_at(blade: &[[f32; 6]], from: f32, frame: f32) -> Option<(Vec3, Vec3)> {
+    let last = blade.len().checked_sub(1)?;
+    let at = (frame - from.floor()).clamp(0.0, last as f32);
+    let (a, b) = (blade[at as usize], blade[(at as usize + 1).min(last)]);
+    let t = at.fract();
+    let mix = |i: usize| Vec3::new(a[i] + (b[i] - a[i]) * t, a[i + 1] + (b[i + 1] - a[i + 1]) * t, a[i + 2] + (b[i + 2] - a[i + 2]) * t);
+    Some((mix(0), mix(3)))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -437,21 +450,5 @@ impl ActionId {
             ActionId::LandStrafe(_) => RUN_SIDE_SPEED,
             _ => 0.0,
         }
-    }
-
-    /// (range in metres, half-angle in degrees) of the swing. ESTIMATE: the
-    /// game sweeps capsules along the blade; this is a wedge in front instead.
-    pub fn reach(self) -> (f32, f32) {
-        use AttackKind::*;
-        let ActionId::Attack(moveset, kind) = self else {
-            return (0.0, 0.0);
-        };
-        let range = 1.4 + WEAPON_LENGTH[moveset.weapon as usize];
-        let half_angle = match kind {
-            Heavy1 | Heavy1Charge | CrouchAttack | RollAttack | BackstepAttack => 35.0,
-            Heavy2 | Heavy2Charge | RunHeavy | JumpHeavyLand | Light5 => 45.0,
-            _ => 60.0,
-        };
-        (range, half_angle)
     }
 }
