@@ -9,7 +9,7 @@ than tuned by eye.
 
 https://github.com/user-attachments/assets/b58dbb0d-a3db-46d5-82ee-d9152503e40c
 
-*The sandbox playing itself through everything it does.
+*The sandbox playing itself through everything it does.*
 
 This is a fan project for study. It is not affiliated with or endorsed by
 FromSoftware or Bandai Namco. Nothing from the game is in this repository,
