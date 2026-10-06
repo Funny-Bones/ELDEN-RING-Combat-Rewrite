@@ -4,6 +4,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 
 use bevy::prelude::*;
 
+use crate::sim::data::HurtLevel;
 use crate::sim::dummy::{DState, STRIKE, WINDUP};
 use crate::Sim;
 
@@ -12,6 +13,17 @@ const DUMMY_HOSTILE: Color = Color::srgb(0.55, 0.3, 0.25);
 /// Telegraph colours: an overhead slam to roll or block, a sweep to jump.
 const DUMMY_SLAM: Color = Color::srgb(1.0, 0.35, 0.1);
 const DUMMY_SWEEP: Color = Color::srgb(0.2, 0.5, 1.0);
+const DUMMY_SLAM_HARD: Color = Color::srgb(1.0, 0.1, 0.1);
+const DUMMY_SLAM_KNOCKDOWN: Color = Color::srgb(0.75, 0.2, 1.0);
+
+/// The harder the slam, the angrier the telegraph.
+fn slam_colour(level: HurtLevel) -> Color {
+    match level {
+        HurtLevel::Large => DUMMY_SLAM_HARD,
+        HurtLevel::Knockdown => DUMMY_SLAM_KNOCKDOWN,
+        _ => DUMMY_SLAM,
+    }
+}
 const DUMMY_STAGGER: Color = Color::srgb(0.9, 0.9, 0.9);
 const DUMMY_DEAD: Color = Color::srgb(0.2, 0.2, 0.2);
 
@@ -109,9 +121,9 @@ pub fn animate_dummy(
             *sweeping = false;
             (8.0, 0.0, 0.0, 0.0, if dummy.aggressive { DUMMY_HOSTILE } else { DUMMY_IDLE })
         }
-        DState::Windup { low: false } => (8.0 + 200.0 * ease(t / WINDUP), 0.0, 0.0, -8.0, DUMMY_SLAM),
+        DState::Windup { low: false } => (8.0 + 200.0 * ease(t / WINDUP), 0.0, 0.0, -8.0, slam_colour(dummy.level)),
         DState::Windup { low: true } => (20.0, 115.0 * ease(t / WINDUP), -60.0 * ease(t / WINDUP), 0.0, DUMMY_SWEEP),
-        DState::Strike { low: false } => (208.0 - 135.0 * (t / STRIKE).min(1.0), 0.0, 0.0, 14.0, DUMMY_SLAM),
+        DState::Strike { low: false } => (208.0 - 135.0 * (t / STRIKE).min(1.0), 0.0, 0.0, 14.0, slam_colour(dummy.level)),
         DState::Strike { low: true } => {
             *sweeping = true;
             (20.0, 115.0, -60.0 + 200.0 * (t / STRIKE).min(1.0), 0.0, DUMMY_SWEEP)

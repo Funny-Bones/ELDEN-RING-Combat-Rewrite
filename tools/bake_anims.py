@@ -41,14 +41,16 @@ EXTRA = [
     ("a00", 300000),   # crouch idle
     ("a00", 320000), ("a00", 320001), ("a00", 320002), ("a00", 320003),  # crouch walk
     ("a00", 320100), ("a00", 320101), ("a00", 320102), ("a00", 320103),  # crouch run
-    ("a00", 22100),    # run stop
+    ("a00", 22100), ("a00", 22101), ("a00", 22102), ("a00", 22103),  # run stop
+    ("a00", 322100),   # crouch run stop
+    ("a00", 390000), ("a00", 390001),  # crouching down, standing back up
     ("a00", 202040),   # airborne loop, for jumps and falls alike
     ("a00", 4000),     # start of a fall off a ledge
     ("a00", 17002),    # death
 ]
 
 STANCE_IDLE, STANCE_GUARD = 0, 100
-STANCE_LOCOMOTION = (20000, 20001, 20002, 20003, 20100, 20101, 20102, 20103, 20200)
+STANCE_LOCOMOTION = (20000, 20001, 20002, 20003, 20100, 20101, 20102, 20103, 20200, 22100)
 
 
 def clip_name(file, anim_id):

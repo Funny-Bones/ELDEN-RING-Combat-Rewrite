@@ -67,9 +67,10 @@ pub enum Req {
 pub struct Act {
     pub id: ActionId,
     pub f: f32,
-    pub hit_done: bool,
-    /// The hit's stamina cost has been taken.
-    paid: bool,
+    /// Bit per hit of the attack: which have already connected...
+    landed: u32,
+    /// ...and which have had their stamina cost taken.
+    paid: u32,
 }
 
 /// A grip or weapon change in progress. It plays on the upper body, so it
@@ -284,26 +285,35 @@ impl Player {
             let id = ActionId::Attack(attack.moveset, kind);
             let live = !attack.hit_done && attack.f >= attack.def.from && attack.f < attack.def.to;
             // The airborne swing uses the same hit as its landing follow-through.
-            let hit = attack.moveset.attack(kind).and_then(|def| def.hit)?;
+            let hit = attack.moveset.attack(kind).and_then(|def| def.hit())?;
             return live.then(|| build(id, attack.moveset, hit));
         }
-        match self.state {
-            State::Act(a) if !a.hit_done => {
-                let ActionId::Attack(moveset, _) = a.id else {
-                    return None;
-                };
-                let hit = a.id.def().hit?;
-                (a.f >= hit.from && a.f < hit.to).then(|| build(a.id, moveset, hit))
-            }
-            _ => None,
-        }
+        let State::Act(a) = self.state else {
+            return None;
+        };
+        let ActionId::Attack(moveset, _) = a.id else {
+            return None;
+        };
+        Self::live_hit(&a).map(|(_, hit)| build(a.id, moveset, hit))
+    }
+
+    /// The hit of the action whose window is open and which has not connected yet.
+    fn live_hit(a: &Act) -> Option<(usize, Hit)> {
+        a.id.def()
+            .hits
+            .iter()
+            .copied()
+            .enumerate()
+            .find(|&(i, hit)| a.f >= hit.from && a.f < hit.to && a.landed & (1 << i) == 0)
     }
 
     pub fn mark_hit(&mut self) {
         if let Some(attack) = &mut self.air_attack {
             attack.hit_done = true;
         } else if let State::Act(a) = &mut self.state {
-            a.hit_done = true;
+            if let Some((i, _)) = Self::live_hit(a) {
+                a.landed |= 1 << i;
+            }
         }
     }
 
@@ -339,7 +349,7 @@ impl Player {
             State::Ground => self.ground(inp, level, target),
             State::Act(a) => self.act(a, inp, level, target),
             State::Air(a) => {
-                self.air(a, inp, level);
+                self.air(a, inp, level, target.is_some());
                 false
             }
             State::Dead { .. } => false,
@@ -418,7 +428,7 @@ impl Player {
                         return false;
                     }
                     Req::Jump => {
-                        self.start_jump(inp);
+                        self.start_jump(inp, target);
                         return false;
                     }
                     Req::Light if self.sprinting => self.pick(&[RunLight, Light1]),
@@ -565,11 +575,11 @@ impl Player {
         }
         a.f += DF;
 
-        // An attack's stamina is taken as its hit comes out, not when it starts.
-        if let Some(hit) = def.hit {
-            if !a.paid && a.f >= hit.from {
-                self.spend(def.stamina);
-                a.paid = true;
+        // An attack's stamina is taken as each hit comes out, not when it starts.
+        for (i, hit) in def.hits.iter().enumerate() {
+            if a.paid & (1 << i) == 0 && a.f >= hit.from {
+                self.spend(hit.stamina);
+                a.paid |= 1 << i;
             }
         }
 
@@ -591,7 +601,7 @@ impl Player {
         level.slide(&mut self.pos, step);
 
         if matches!(a.id, ActionId::Jump(_)) {
-            self.jump(a, &def, step, inp, level);
+            self.jump(a, &def, step, inp, level, target.is_some());
             return false;
         }
         if !self.follow_ground(level, (step / DT).clamp_length_max(SPRINT_SPEED)) {
@@ -615,7 +625,7 @@ impl Player {
                             return false;
                         }
                         Req::Jump => {
-                            self.start_jump(inp);
+                            self.start_jump(inp, target);
                             return false;
                         }
                         Req::Light => self.next_light(a.id),
@@ -651,7 +661,7 @@ impl Player {
 
     /// The jump is an authored arc, not physics: height comes from the
     /// animation until it ends, and only then does gravity take over.
-    fn jump(&mut self, a: Act, def: &ActionDef, step: Vec3, inp: &Input, level: &Level) {
+    fn jump(&mut self, a: Act, def: &ActionDef, step: Vec3, inp: &Input, level: &Level, locked: bool) {
         let up = def.motion_at(a.f)[1];
         let ground = level.height(self.pos.x, self.pos.z);
         self.try_air_attack(a.f >= def.cancel_light);
@@ -671,7 +681,7 @@ impl Player {
         let y = self.jump_base + up;
         self.peak = self.peak.max(y);
         if y <= ground {
-            self.land(ground, inp, true);
+            self.land(ground, inp, true, locked);
             return;
         }
         self.pos.y = y;
@@ -686,7 +696,7 @@ impl Player {
         self.state = State::Air(Air { vel: Vec3::new(flat.x, rise, flat.z), jumped: true, f: 0.0 });
     }
 
-    fn air(&mut self, mut a: Air, inp: &Input, level: &Level) {
+    fn air(&mut self, mut a: Air, inp: &Input, level: &Level, locked: bool) {
         a.f += DF;
         a.vel.y = (a.vel.y - GRAVITY * DT).max(-TERMINAL_VELOCITY);
         level.slide(&mut self.pos, Vec3::new(a.vel.x, 0.0, a.vel.z) * DT);
@@ -699,7 +709,7 @@ impl Player {
         if a.vel.y > 0.0 || self.pos.y > ground {
             self.state = State::Air(a);
         } else {
-            self.land(ground, inp, a.jumped && !a.falling());
+            self.land(ground, inp, a.jumped && !a.falling(), locked);
         }
     }
 
@@ -722,7 +732,7 @@ impl Player {
         self.air_attack = Some(AirAttack { heavy, moveset, def, f: 0.0, hit_done: false });
     }
 
-    fn land(&mut self, ground: f32, inp: &Input, jumped: bool) {
+    fn land(&mut self, ground: f32, inp: &Input, jumped: bool, locked: bool) {
         self.pos.y = ground;
         let fall = self.peak - ground;
         let attack = self.air_attack.take();
@@ -755,9 +765,10 @@ impl Player {
             if let State::Act(act) = &mut self.state {
                 // Still coming down: the landing animation carries the hit.
                 // Already swung: it must not hit a second time.
-                act.f = if finished { 0.0 } else { attack.f.min(def.hit.map_or(0.0, |hit| hit.from)) };
-                act.paid = true;
-                act.hit_done = attack.hit_done || finished;
+                act.f = if finished { 0.0 } else { attack.f.min(def.hit().map_or(0.0, |hit| hit.from)) };
+                // The swing was paid for in the air.
+                act.paid = u32::MAX;
+                act.landed = if attack.hit_done || finished { u32::MAX } else { 0 };
             }
         } else if fall >= FALL_HEAVY_LANDING {
             self.start(ActionId::LandHeavy);
@@ -765,6 +776,13 @@ impl Player {
             self.start(ActionId::LandFall);
         } else if let Some(w) = inp.wish() {
             // Landing with the stick held runs straight out of the jump.
+            if locked && !self.sprint_held(inp) {
+                // Locked on, that is a step in one of four directions, still facing the target.
+                let side = self.square_up(yaw_of(w), true);
+                let walking = inp.walk || inp.tilt() < WALK_TILT;
+                self.start(if walking { ActionId::LandStrafeWalk(side) } else { ActionId::LandStrafe(side) });
+                return;
+            }
             self.yaw = yaw_of(w);
             self.start(if self.sprint_held(inp) { ActionId::LandSprint } else { ActionId::LandRun });
         } else {
@@ -799,7 +817,7 @@ impl Player {
 
     fn start(&mut self, id: ActionId) {
         self.spend(id.start_cost());
-        self.state = State::Act(Act { id, f: 0.0, hit_done: false, paid: false });
+        self.state = State::Act(Act { id, f: 0.0, landed: 0, paid: 0 });
         self.speed = 0.0;
         self.sprinting = false;
         self.crouching &= matches!(id, ActionId::CrouchRoll(..));
@@ -815,22 +833,24 @@ impl Player {
             self.start(ActionId::Backstep);
             return;
         };
-        let goal = yaw_of(dir);
-        let side = if target.is_some() {
-            // Locked on: pick the directional roll nearest the stick, then
-            // square the character up so that roll travels exactly that way.
-            let off = angle_diff(self.yaw, goal);
-            if off.abs() <= FRAC_PI_4 {
-                Dir::Front
-            } else if off.abs() >= PI - FRAC_PI_4 {
-                Dir::Back
-            } else if off > 0.0 {
-                Dir::Left
-            } else {
-                Dir::Right
-            }
-        } else {
+        let side = self.square_up(yaw_of(dir), target.is_some());
+        self.start(if self.crouching { ActionId::CrouchRoll(self.load, side) } else { ActionId::Roll(self.load, side) });
+    }
+
+    /// Turns the character for a move toward `goal`. Free, it simply faces
+    /// that way. Locked on, it picks the nearest of front, back, left and
+    /// right and squares up so that direction points exactly at `goal`, which
+    /// keeps it facing roughly at its target. Returns the direction picked.
+    fn square_up(&mut self, goal: f32, locked: bool) -> Dir {
+        let off = angle_diff(self.yaw, goal);
+        let side = if !locked || off.abs() <= FRAC_PI_4 {
             Dir::Front
+        } else if off.abs() >= PI - FRAC_PI_4 {
+            Dir::Back
+        } else if off > 0.0 {
+            Dir::Left
+        } else {
+            Dir::Right
         };
         self.yaw = match side {
             Dir::Front => goal,
@@ -838,21 +858,20 @@ impl Player {
             Dir::Left => goal - FRAC_PI_2,
             Dir::Right => goal + FRAC_PI_2,
         };
-        self.start(if self.crouching { ActionId::CrouchRoll(self.load, side) } else { ActionId::Roll(self.load, side) });
+        side
     }
 
-    fn start_jump(&mut self, inp: &Input) {
+    fn start_jump(&mut self, inp: &Input, target: Option<Vec3>) {
         let kind = match inp.wish() {
             None => JumpKind::Stand,
-            Some(dir) => {
+            Some(dir) if self.sprinting => {
                 self.yaw = yaw_of(dir);
-                if self.sprinting {
-                    JumpKind::Sprint
-                } else if inp.walk || inp.tilt() < WALK_TILT {
-                    JumpKind::Walk
-                } else {
-                    JumpKind::Run
-                }
+                JumpKind::Sprint
+            }
+            Some(dir) => {
+                // Locked on, walking and running jumps go four ways like rolls do.
+                let side = self.square_up(yaw_of(dir), target.is_some());
+                JumpKind::toward(side, inp.walk || inp.tilt() < WALK_TILT)
             }
         };
         self.jump_base = self.pos.y;

@@ -213,7 +213,7 @@ fn combo_resets_once_the_animation_is_left() {
 fn attack_stamina_is_taken_when_the_hit_comes_out() {
     let mut w = world();
     w.step(&Input { light: DOWN, ..idle() });
-    let hit = atk(AttackKind::Light1).def().hit.unwrap();
+    let hit = atk(AttackKind::Light1).def().hits[0];
     run_to_frame(&mut w, idle(), hit.from - 0.5);
     assert_eq!(w.player.stamina, MAX_STAMINA);
     w.step(&idle());
@@ -459,7 +459,7 @@ fn player_attack_damages_the_dummy_once_per_swing() {
     w.player.pos = Vec3::new(0.0, 0.0, 6.0);
     w.step(&Input { light: DOWN, ..idle() });
     run(&mut w, idle(), 160);
-    let expected = super::dummy::MAX_HP - 110.0 * atk(AttackKind::Light1).def().hit.unwrap().mv;
+    let expected = super::dummy::MAX_HP - 110.0 * atk(AttackKind::Light1).def().hits[0].mv;
     assert_eq!(WEAPONS[DEFAULT_WEAPON].attack, 110.0);
     assert!((w.dummy.hp - expected).abs() < 1e-3);
 }
@@ -599,7 +599,7 @@ fn every_moveset_has_its_core_attacks() {
             // Whatever a moveset does have must be able to hit and must cost stamina.
             for kind in all {
                 let Some(def) = moveset.attack(kind) else { continue };
-                let hit = def.hit.unwrap_or_else(|| panic!("{name} {two_hand} {kind:?} has no hit"));
+                let hit = def.hit().unwrap_or_else(|| panic!("{name} {two_hand} {kind:?} has no hit"));
                 assert!(hit.from < hit.to && hit.to <= def.total, "{name} {kind:?}");
                 assert!(def.stamina > 0.0 && hit.mv > 0.0, "{name} {kind:?}");
             }
@@ -677,7 +677,7 @@ fn second_light_swing_carries_its_real_root_motion() {
     let def = atk(AttackKind::Light2).def();
     assert_eq!(def.total, 62.0);
     assert!((def.motion_at(def.total)[2] - 1.193).abs() < 1e-3);
-    let hit = def.hit.unwrap();
+    let hit = def.hits[0];
     assert_eq!((hit.from, hit.to), (13.0, 15.0));
 }
 
@@ -840,4 +840,119 @@ fn dodge_and_jump_cost_what_the_game_charges() {
     assert_eq!(spent(forward(), true), 12.0, "roll");
     assert_eq!(spent(idle(), true), 8.0, "backstep");
     assert_eq!(spent(idle(), false), 10.0, "jump");
+}
+
+#[test]
+fn multi_hit_attacks_land_and_charge_each_hit() {
+    let mut w = world();
+    w.player.weapon = WEAPONS.iter().position(|info| info.name == "Twinblade").unwrap();
+    w.player.grip = Grip::TwoHandRight;
+    w.player.pos = Vec3::new(0.0, 0.0, 6.5);
+    w.step(&Input { light: DOWN, ..idle() });
+    let def = id(&w).unwrap().def();
+    assert_eq!(def.source, "a024_032000");
+    assert_eq!(def.hits.len(), 2, "a two-handed twinblade light is two cuts");
+    let before = w.dummy.hp;
+    run(&mut w, idle(), 200);
+    let dealt = before - w.dummy.hp;
+    let expected: f32 = def.hits.iter().map(|hit| hit.mv * w.player.moveset().info().attack).sum();
+    assert!((dealt - expected).abs() < 1e-2, "dealt {dealt}, expected {expected}");
+    // Idle since: only check what the swing took, at the moment it took it.
+    let mut w = world();
+    w.player.weapon = WEAPONS.iter().position(|info| info.name == "Twinblade").unwrap();
+    w.player.grip = Grip::TwoHandRight;
+    w.step(&Input { light: DOWN, ..idle() });
+    run_to_frame(&mut w, idle(), def.hits[1].from);
+    let costs: f32 = def.hits.iter().map(|hit| hit.stamina).sum();
+    assert_eq!(MAX_STAMINA - w.player.stamina, costs);
+    assert_eq!(costs, 16.0);
+}
+
+#[test]
+fn locked_on_jumps_go_four_ways_and_keep_facing_the_target() {
+    let mut w = world();
+    w.step(&Input { lock: true, ..idle() });
+    // Stick left of the camera, which looks down +Z: the +X side.
+    let left = Input { mv: Vec2::new(-1.0, 0.0), ..idle() };
+    w.step(&Input { jump: DOWN, ..left });
+    assert_eq!(id(&w), Some(ActionId::Jump(JumpKind::RunLeft)));
+    assert_eq!(id(&w).unwrap().def().source, "a000_202022");
+    while matches!(id(&w), Some(ActionId::Jump(_))) {
+        assert!(w.player.yaw.abs() < 0.3, "still facing the target, yaw {}", w.player.yaw);
+        w.step(&idle());
+    }
+    assert!(w.player.pos.x > 3.0, "travelled sideways: x = {}", w.player.pos.x);
+
+    // Still holding left on landing: a sideways landing, not a turn and a run forward.
+    let mut w = world();
+    w.step(&Input { lock: true, ..idle() });
+    w.step(&Input { jump: DOWN, ..left });
+    while matches!(id(&w), Some(ActionId::Jump(_))) || !matches!(w.player.state, State::Act(_)) {
+        w.step(&left);
+    }
+    assert_eq!(id(&w), Some(ActionId::LandStrafe(Dir::Left)));
+    assert_eq!(id(&w).unwrap().def().source, "a000_202117");
+    for _ in 0..40 {
+        w.step(&left);
+        let to_target = (w.dummy.pos - w.player.pos).normalize();
+        assert!(w.player.facing().dot(to_target) > 0.8, "still facing the target, yaw {}", w.player.yaw);
+    }
+
+    // Not locked on, the same input is an ordinary running jump in that direction.
+    let mut w = world();
+    w.step(&Input { jump: DOWN, ..left });
+    assert_eq!(id(&w), Some(ActionId::Jump(JumpKind::Run)));
+}
+
+#[test]
+fn a_knockdown_throws_you_back_and_you_roll_to_get_up() {
+    use super::player::Incoming;
+    let mut w = world();
+    let hit = Incoming { damage: 10.0, stamina: 10.0, from: Vec3::Z, low: false, level: HurtLevel::Knockdown };
+    w.player.receive_hit(&hit, &Level::flat());
+    let knocked = ActionId::Hurt(HurtLevel::Knockdown, Dir::Front);
+    assert_eq!(id(&w), Some(knocked));
+    let def = knocked.def();
+    assert_eq!((def.source, def.total, def.iframes, def.cancel_dodge), ("a000_005400", 105.0, (0.0, 59.0), 36.0));
+
+    // Mash roll throughout: it only comes out once the get-up allows it.
+    let tap = Button { held: false, pressed: true, released: true };
+    while let Some((id, f)) = action(&w) {
+        if id != knocked {
+            break;
+        }
+        assert!(f < def.cancel_dodge + DF);
+        assert!(w.player.invincible(), "down and invincible at frame {f}");
+        w.step(&Input { dodge: tap, ..forward() });
+    }
+    assert!(matches!(id(&w), Some(ActionId::Roll(..))));
+
+    // Left alone, it throws the character 4 m away from the hit.
+    let mut w = world();
+    w.player.receive_hit(&hit, &Level::flat());
+    run(&mut w, idle(), 260);
+    assert!((w.player.pos.z + 4.0).abs() < 0.05, "z = {}", w.player.pos.z);
+}
+
+#[test]
+fn the_dummy_escalates_through_its_attacks() {
+    let mut w = world();
+    w.dummy.aggressive = true;
+    w.player.pos = Vec3::new(0.0, 0.0, 5.0);
+    let mut seen = Vec::new();
+    for _ in 0..3000 {
+        w.step(&idle());
+        w.player.hp = MAX_HP;
+        w.player.pos = Vec3::new(0.0, 0.0, 5.0);
+        if let Some(ActionId::Hurt(level, _)) = id(&w) {
+            if seen.last() != Some(&level) {
+                seen.push(level);
+            }
+        }
+        if seen.len() == 4 {
+            break;
+        }
+    }
+    use HurtLevel::*;
+    assert_eq!(seen, [Middle, Small, Large, Knockdown]);
 }

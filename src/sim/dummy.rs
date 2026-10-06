@@ -20,6 +20,13 @@ pub const STRIKE: f32 = 0.1;
 const RECOVER: f32 = 1.2;
 const STAGGER: f32 = 1.6;
 const RESPAWN: f32 = 4.0;
+/// The attack cycle: (is a low sweep, how hard it hits).
+const SWINGS: [(bool, HurtLevel); 4] = [
+    (false, HurtLevel::Middle),
+    (true, HurtLevel::Small),
+    (false, HurtLevel::Large),
+    (false, HurtLevel::Knockdown),
+];
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DState {
@@ -45,7 +52,9 @@ pub struct Dummy {
     pub connected: bool,
     /// The current swing was already reported as evaded.
     pub evade_logged: bool,
-    low_next: bool,
+    /// How hard the swing in progress knocks the player about.
+    pub level: HurtLevel,
+    next: u8,
     since_hit: f32,
 }
 
@@ -61,7 +70,8 @@ impl Dummy {
             aggressive: false,
             connected: false,
             evade_logged: false,
-            low_next: false,
+            level: HurtLevel::Middle,
+            next: 0,
             since_hit: 0.0,
         }
     }
@@ -126,8 +136,10 @@ impl Dummy {
                 if self.aggressive && !player_dead && level && self.t >= COOLDOWN && distance <= AGGRO_RANGE {
                     self.connected = false;
                     self.evade_logged = false;
-                    let low = self.low_next;
-                    self.low_next = !low;
+                    // Slam, sweep, a harder slam, then one that knocks you down.
+                    let (low, level) = SWINGS[self.next as usize % SWINGS.len()];
+                    self.next = self.next.wrapping_add(1);
+                    self.level = level;
                     self.enter(DState::Windup { low });
                 }
             }
@@ -143,14 +155,17 @@ impl Dummy {
                 if self.t >= STRIKE {
                     self.enter(DState::Recover);
                 } else if !self.connected {
-                    let (range, half_arc, damage, stamina) =
-                        if low { (3.6, 180.0_f32, 120.0, 30.0) } else { (3.4, 40.0, 160.0, 40.0) };
+                    let (range, half_arc) = if low { (3.6, 180.0_f32) } else { (3.4, 40.0) };
+                    let (damage, stamina) = match self.level {
+                        HurtLevel::Small => (120.0, 30.0),
+                        HurtLevel::Middle => (160.0, 40.0),
+                        HurtLevel::Large => (200.0, 50.0),
+                        HurtLevel::Knockdown => (240.0, 60.0),
+                    };
                     let in_arc = to.normalize_or_zero().dot(dir_of(self.yaw)) >= half_arc.to_radians().cos();
                     let in_height = (player.y - self.pos.y).abs() < 2.5;
                     if distance <= range && in_arc && in_height {
-                        // The sweep clips you; the slam rocks you.
-                        let level = if low { HurtLevel::Small } else { HurtLevel::Middle };
-                        return Some(Incoming { damage, stamina, from: self.pos, low, level });
+                        return Some(Incoming { damage, stamina, from: self.pos, low, level: self.level });
                     }
                 }
             }

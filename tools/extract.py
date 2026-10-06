@@ -88,6 +88,9 @@ BASE = [
     ("LandLight", "a00", 202100),
     ("LandRun", "a00", 202127),
     ("LandSprint", "a00", 202125),
+    # Landing on the move while locked on: front, back, left, right.
+    *[("LandStrafeWalk(Dir::%s)" % d, "a00", 202110 + i) for i, d in enumerate(("Front", "Back", "Left", "Right"))],
+    *[("LandStrafe(Dir::%s)" % d, "a00", 202115 + i) for i, d in enumerate(("Front", "Back", "Left", "Right"))],
     # Landing from a fall rather than a jump: a deep crouch, or from high up
     # a sprawl the character has to get up from.
     ("LandFall", "a00", 202300),
@@ -100,7 +103,13 @@ for _load, _base in (("Light", 27100), ("Medium", 27110), ("Heavy", 27120)):
 for _load, _base in (("Light", 327100), ("Medium", 327110), ("Heavy", 327120)):
     for _i, _d in enumerate(("Front", "Back", "Left", "Right")):
         BASE.append((f"CrouchRoll(Load::{_load}, Dir::{_d})", "a00", _base + _i))
-for _kind, _anim in (("Stand", 202000), ("Walk", 202010), ("Run", 202020), ("Sprint", 202030)):
+# Walking and running jumps have back, left and right versions for use while
+# locked on, where the character keeps facing its target.
+JUMPS = [("Stand", 202000), ("Sprint", 202030)]
+for _gait, _base in (("Walk", 202010), ("Run", 202020)):
+    for _i, _d in enumerate(("", "Back", "Left", "Right")):
+        JUMPS.append((_gait + _d, _base + _i))
+for _kind, _anim in JUMPS:
     BASE.append((f"Jump(JumpKind::{_kind})", "a00", _anim))
 
 # Reactions to being hit: (Rust variant, TAE file, animation id).
@@ -117,6 +126,16 @@ REACTIONS = [
     ("Hurt(HurtLevel::Middle, Dir::Back)", "a00", 5230),
     ("Hurt(HurtLevel::Middle, Dir::Left)", "a00", 5220),
     ("Hurt(HurtLevel::Middle, Dir::Right)", "a00", 5210),
+    ("Hurt(HurtLevel::Large, Dir::Front)", "a00", 5300),
+    ("Hurt(HurtLevel::Large, Dir::Back)", "a00", 5310),
+    ("Hurt(HurtLevel::Large, Dir::Left)", "a00", 5330),
+    ("Hurt(HurtLevel::Large, Dir::Right)", "a00", 5320),
+    # Knocked off the feet and thrown 4 m. Picked by which way the root
+    # motion throws the body: a hit from the front throws it backwards.
+    ("Hurt(HurtLevel::Knockdown, Dir::Front)", "a00", 5400),
+    ("Hurt(HurtLevel::Knockdown, Dir::Back)", "a00", 5410),
+    ("Hurt(HurtLevel::Knockdown, Dir::Left)", "a00", 5420),
+    ("Hurt(HurtLevel::Knockdown, Dir::Right)", "a00", 5430),
     ("GuardHit", "a00", 4200),
     ("GuardBreak", "a00", 4270),
 ]
@@ -137,6 +156,36 @@ SWAPS = [
 EVENT_SET_STYLE, EVENT_SWITCH_WEAPON = 32, 33
 
 # Looping locomotion: speed is root-motion distance over duration.
+# The character is the Vagabond starting class at its starting level.
+START_CLASS = 3000
+# CharaInitParam: vigor, mind, endurance, ... one byte each from here.
+CLASS_STATS = 0xC2
+# CalcCorrectGraph rows turning a stat into a maximum.
+HP_GRAPH, STAMINA_GRAPH = 100, 104
+
+
+def stat_curve(row, stat):
+    """Evaluates a CalcCorrectGraph row: five (stat, value) knots, with an
+    exponent shaping each span (negative ones curve the other way)."""
+    at = struct.unpack_from("<5f", row, 0)
+    value = struct.unpack_from("<5f", row, 20)
+    shape = struct.unpack_from("<5f", row, 40)
+    for i in range(4):
+        if stat <= at[i + 1]:
+            t = max(0.0, (stat - at[i]) / (at[i + 1] - at[i]))
+            t = t ** shape[i] if shape[i] > 0 else 1 - (1 - t) ** -shape[i]
+            return value[i] + (value[i + 1] - value[i]) * t
+    return value[4]
+
+
+def vitals():
+    """(max HP, max stamina) of the starting class."""
+    stats = param.rows("CharaInitParam")[START_CLASS]
+    vigor, endurance = stats[CLASS_STATS], stats[CLASS_STATS + 2]
+    graphs = param.rows("CalcCorrectGraph")
+    return int(stat_curve(graphs[HP_GRAPH], vigor)), int(stat_curve(graphs[STAMINA_GRAPH], endurance))
+
+
 SPEEDS = [
     ("WALK_SPEED", 20000),
     ("RUN_SPEED", 20100),
@@ -272,7 +321,9 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
     Reactions carry no input window and their flags mean something narrower
     than on a normal action, so for them: input is always listened for, the
     dodge flag is not treated as invincibility, and a hurt animation frees
-    everything at the frame it frees movement."""
+    everything at the frame it frees movement. A knockdown is the exception:
+    its flags are taken as written, giving invincibility while down and an
+    early roll to get up."""
     anim = src.anim(file, anim_id)
     if anim is None or src.hkx_name(file, anim_id) is None:
         return None
@@ -292,10 +343,11 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
         "move": first(anim, F_CANCEL_MOVE),
     }
     if reaction:
-        iframes = (0.0, 0.0)
         common = in_dodge = 0.0
-        if name.startswith("Hurt"):
-            cancel = {key: cancel["move"] for key in cancel}
+        if "Knockdown" not in name:
+            iframes = (0.0, 0.0)
+            if name.startswith("Hurt"):
+                cancel = {key: cancel["move"] for key in cancel}
     hits = hit_events(anim)
     turns = sorted((frames(e.start), frames(e.end), round(e.f32(0), 1)) for e in anim.events if e.type == 224)
     charging = sorted(
@@ -303,9 +355,10 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
     )
 
     stamina = 0.0
-    hit = "None"
-    # The first hit that actually does damage: some animations lead with a
-    # marker event whose attack row has no motion value.
+    hit_list = []
+    # Every hit that actually does damage, each with its own stamina cost.
+    # Some animations also carry marker events whose attack row has no motion
+    # value; those are not hits.
     for start, end, judge in hits if variation is not None else ():
         got = src.judge(variation, judge)
         if not got:
@@ -314,9 +367,11 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
         cost, mv, stam_dmg = got
         if mv <= 0.0:
             continue
-        stamina = float(cost)
-        hit = "Some(Hit { from: %.1f, to: %.1f, mv: %.2f, guard_damage: %.2f })" % (start, end, mv, stam_dmg)
-        break
+        hit_list.append(
+            "Hit { from: %.1f, to: %.1f, mv: %.2f, guard_damage: %.2f, stamina: %.1f }" % (start, end, mv, stam_dmg, cost)
+        )
+        if len(hit_list) == 1:
+            stamina = float(cost)
     charge = "Some((%.1f, %.1f))" % charging[0] if charging else "None"
 
     fields = [
@@ -334,7 +389,7 @@ def action_def(src, name, file, anim_id, variation, reaction=False):
         "iframes: (%.1f, %.1f)" % iframes,
         "jump_frames: %s" % str(bool(windows(anim, F_JUMP_FRAMES))).lower(),
         "stamina: %.1f" % stamina,
-        "hit: %s" % hit,
+        "hits: &[%s]" % ", ".join(hit_list),
         "charge: %s" % charge,
         "no_turn: &[" + ", ".join("(%.1f, %.1f)" % w for w in windows(anim, F_NO_TURN)) + "]",
         "turn: &[" + ", ".join("(%.1f, %.1f, %.1f)" % t for t in turns) + "]",
@@ -381,7 +436,7 @@ def gather(src):
                 # A few paired-weapon attacks carry no hit event of their own.
                 # A swing that can never connect is worse than not having it:
                 # leaving it out makes the moveset fall back to another attack.
-                if "hit: None" in literal and not kind.endswith("Short"):
+                if "hits: &[]" in literal and not kind.endswith("Short"):
                     print("  skipped (no hit window):", weapon["name"], "2H" if two_hand else "1H", kind)
                     continue
                 attacks.append((index, two_hand, kind, literal, weapon["file"], anim_id))
@@ -420,6 +475,9 @@ def main():
         end = motion[-1]
         dist = (end[0] ** 2 + end[2] ** 2) ** 0.5
         out.append("pub const %s: f32 = %.3f;" % (const, dist / ((len(motion) - 1) / 30.0)))
+
+    hp, stamina = vitals()
+    out += ["pub const MAX_HP: f32 = %d.0;" % hp, "pub const MAX_STAMINA: f32 = %d.0;" % stamina]
 
     out += ["", "pub const WEAPONS: &[WeaponInfo] = &["]
     for weapon in weapons:

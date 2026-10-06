@@ -12,8 +12,8 @@
 
 use super::extracted;
 pub use super::extracted::{
-    CROUCH_RUN_SPEED, CROUCH_WALK_SPEED, DEFAULT_WEAPON, RUN_BACK_SPEED, RUN_SIDE_SPEED, RUN_SPEED, SHIELD, SPRINT_SPEED, WALK_SPEED,
-    WEAPONS,
+    CROUCH_RUN_SPEED, CROUCH_WALK_SPEED, DEFAULT_WEAPON, MAX_HP, MAX_STAMINA, RUN_BACK_SPEED, RUN_SIDE_SPEED, RUN_SPEED, SHIELD,
+    SPRINT_SPEED, WALK_SPEED, WEAPONS,
 };
 
 pub const ANIM_FPS: f32 = 30.0;
@@ -24,8 +24,8 @@ pub const DF: f32 = ANIM_FPS * DT;
 
 // --- Character (ESTIMATE) --------------------------------------------------
 
-pub const MAX_HP: f32 = 522.0;
-pub const MAX_STAMINA: f32 = 96.0;
+// Max HP and stamina are the starting class's, read from the game's own
+// stat curves; see `extracted`.
 pub const STAMINA_REGEN: f32 = 45.0;
 /// Regen multiplier while the guard is raised.
 pub const GUARD_REGEN_MULT: f32 = 0.5;
@@ -115,14 +115,40 @@ pub enum Dir {
 pub enum HurtLevel {
     Small,
     Middle,
+    Large,
+    /// Knocked off the feet and thrown back.
+    Knockdown,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum JumpKind {
     Stand,
     Walk,
+    WalkBack,
+    WalkLeft,
+    WalkRight,
     Run,
+    RunBack,
+    RunLeft,
+    RunRight,
     Sprint,
+}
+
+impl JumpKind {
+    /// The walking or running jump that travels toward `side` of facing.
+    pub fn toward(side: Dir, walking: bool) -> Self {
+        use JumpKind::*;
+        match (walking, side) {
+            (true, Dir::Front) => Walk,
+            (true, Dir::Back) => WalkBack,
+            (true, Dir::Left) => WalkLeft,
+            (true, Dir::Right) => WalkRight,
+            (false, Dir::Front) => Run,
+            (false, Dir::Back) => RunBack,
+            (false, Dir::Left) => RunLeft,
+            (false, Dir::Right) => RunRight,
+        }
+    }
 }
 
 pub struct WeaponInfo {
@@ -280,6 +306,8 @@ pub struct Hit {
     pub mv: f32,
     /// Multiplier on stamina damage dealt to a guarding target.
     pub guard_damage: f32,
+    /// Stamina taken when this hit comes out.
+    pub stamina: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -303,9 +331,10 @@ pub struct ActionDef {
     pub iframes: (f32, f32),
     /// Low attacks pass underneath while this is airborne.
     pub jump_frames: bool,
-    /// Spent when the hit window opens, or at the start if there is none.
+    /// Cost of the first hit, for display; each hit carries its own.
     pub stamina: f32,
-    pub hit: Option<Hit>,
+    /// Every hit of the attack, in order. Most attacks have one.
+    pub hits: &'static [Hit],
     /// Window in which releasing the button swaps to the uncharged attack.
     /// Holding past its end commits to the charged one.
     pub charge: Option<(f32, f32)>,
@@ -329,6 +358,11 @@ impl ActionDef {
         let t = frame - i as f32;
         let (a, b) = (self.motion[i], self.motion[j]);
         [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+    }
+
+    /// The attack's first hit.
+    pub fn hit(&self) -> Option<Hit> {
+        self.hits.first().copied()
     }
 
     pub fn can_turn(&self, frame: f32) -> bool {
@@ -355,6 +389,9 @@ pub enum ActionId {
     LandLight,
     LandRun,
     LandSprint,
+    /// Landing while circling a locked-on target, walking or running.
+    LandStrafeWalk(Dir),
+    LandStrafe(Dir),
     LandHeavy,
     /// Landing from walking or rolling off a ledge rather than from a jump.
     LandFall,
@@ -394,6 +431,10 @@ impl ActionId {
             ActionId::Roll(..) | ActionId::LandRun => RUN_SPEED,
             ActionId::CrouchRoll(..) => CROUCH_RUN_SPEED,
             ActionId::LandSprint => SPRINT_SPEED,
+            ActionId::LandStrafeWalk(_) => WALK_SPEED,
+            ActionId::LandStrafe(Dir::Front) => RUN_SPEED,
+            ActionId::LandStrafe(Dir::Back) => RUN_BACK_SPEED,
+            ActionId::LandStrafe(_) => RUN_SIDE_SPEED,
             _ => 0.0,
         }
     }

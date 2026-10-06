@@ -22,6 +22,12 @@ const SPRINT: u32 = 20200;
 const CROUCH_IDLE: u32 = 300000;
 const CROUCH_WALK: u32 = 320000;
 const CROUCH_RUN: u32 = 320100;
+const RUN_STOP: u32 = 22100;
+const CROUCH_RUN_STOP: u32 = 322100;
+const CROUCH_ENTER: u32 = 390000;
+const CROUCH_EXIT: u32 = 390001;
+/// Coming to rest this soon (seconds) after running plays the run's stop.
+const STOP_WITHIN: f32 = 0.3;
 /// In the air with nothing else going on: after a jump's arc has played out,
 /// and for the body of any fall. The game's plain fall-loop entries play
 /// this same clip.
@@ -193,6 +199,14 @@ pub struct Rig {
     body_y: f32,
     /// How far each foot (left, right) is lifted to meet the ground under it.
     foot_lift: [f32; 2],
+    /// A one-off animation played while standing still, and its frame:
+    /// stopping from a run, crouching down, standing up.
+    rest: Option<(String, f32)>,
+    /// Seconds since last at running pace, and the direction of that run.
+    ran: f32,
+    ran_dir: u32,
+    still: bool,
+    crouched: bool,
 }
 
 pub fn setup(
@@ -309,6 +323,11 @@ pub fn setup(
         swap: 0.0,
         body_y: 0.0,
         foot_lift: [0.0; 2],
+        rest: None,
+        ran: f32::MAX,
+        ran_dir: 0,
+        still: true,
+        crouched: false,
     });
 }
 
@@ -318,6 +337,37 @@ fn playing(p: &Player, rig: &mut Rig, clips: &Clips, time: f32, dt: f32, ahead: 
         return (attack.def.source.to_string(), attack.f + ahead, false);
     }
     let stance = stance(p);
+    let grounded = matches!(p.state, State::Ground);
+    let still = grounded && p.speed < 0.05;
+    let running_from = if p.crouching { (CROUCH_WALK_SPEED + CROUCH_RUN_SPEED) / 2.0 } else { (WALK_SPEED + RUN_SPEED) / 2.0 };
+    if grounded && p.speed > running_from {
+        rig.ran = 0.0;
+    } else {
+        rig.ran += dt;
+    }
+    if !still {
+        rig.rest = None;
+    } else if p.crouching != rig.crouched {
+        rig.rest = Some((clip_name(0, if p.crouching { CROUCH_ENTER } else { CROUCH_EXIT }), 0.0));
+    } else if !rig.still && rig.ran < STOP_WITHIN {
+        // The stop that matches the stance and the way the run was going, if there is one.
+        let options = if p.crouching {
+            [clip_name(0, CROUCH_RUN_STOP), clip_name(0, CROUCH_RUN_STOP)]
+        } else {
+            let own = if p.grip == Grip::OneHand { 0 } else { stance };
+            [clip_name(own, RUN_STOP + rig.ran_dir), clip_name(0, RUN_STOP + rig.ran_dir)]
+        };
+        rig.rest = options.into_iter().find(|name| clips.get(name).is_some()).map(|name| (name, 0.0));
+    }
+    rig.still = still;
+    rig.crouched = p.crouching;
+    if let Some((name, frame)) = &mut rig.rest {
+        *frame += ANIM_FPS * dt;
+        match clips.get(name) {
+            Some(clip) if *frame < (clip.frames - 1) as f32 => return (name.clone(), *frame, false),
+            _ => rig.rest = None,
+        }
+    }
     match p.state {
         State::Dead { t } => (DEATH.to_string(), t + ahead, false),
         // Only a walk off a ledge has a fall start; a jump is already airborne.
@@ -341,6 +391,7 @@ fn playing(p: &Player, rig: &mut Rig, clips: &Clips, time: f32, dt: f32, ahead: 
             } else {
                 2 + (across < 0.0) as u32
             };
+            rig.ran_dir = dir;
             let (id, native) = if p.crouching && p.speed > (CROUCH_WALK_SPEED + CROUCH_RUN_SPEED) / 2.0 {
                 (CROUCH_RUN + dir, CROUCH_RUN_SPEED)
             } else if p.crouching {
@@ -423,7 +474,8 @@ pub fn animate(
     rig.guard = (rig.guard + if raising { step } else { -step }).clamp(0.0, 1.0);
     // One-handed stances have no locomotion of their own: the base loops play
     // with the stance's weapon arm layered over them.
-    let carrying = !two_handed && stance != 0 && grounded && player.speed >= 0.05;
+    let stopping = rig.rest.is_some() && !player.crouching && !rig.clip.ends_with(&format!("{CROUCH_EXIT:06}"));
+    let carrying = !two_handed && stance != 0 && grounded && (player.speed >= 0.05 || stopping);
     rig.carry = (rig.carry + if carrying { step } else { -step }).clamp(0.0, 1.0);
 
     let mut pose = std::mem::take(&mut *target);
