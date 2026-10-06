@@ -59,6 +59,23 @@ def mirror(v):
     return (v[0], v[1], -v[2])
 
 
+def wanted_clips(src, gathered=None):
+    """(TAE file, animation id) of every clip the sandbox plays, in a stable order.
+    `gathered` is extract.gather(src), if the caller already has it."""
+    weapons, attacks, air = gathered or gather(src)
+    wanted = [(file, anim_id) for _variant, file, anim_id in BASE + REACTIONS] + EXTRA
+    # Every stance a weapon can be held in: idle and guard, plus the full
+    # locomotion set that two-handed stances carry.
+    for weapon in weapons:
+        one, two = weapon["stance"]
+        wanted += [("a%02d" % one, STANCE_IDLE), ("a%02d" % one, STANCE_GUARD)]
+        wanted += [("a%02d" % two, anim_id) for anim_id in (STANCE_IDLE, STANCE_GUARD, *STANCE_LOCOMOTION)]
+    wanted = [(file, anim_id) for file, anim_id in wanted if src.hkx_name(file, anim_id)]
+    wanted += [(file, anim_id) for *_rest, file, anim_id in attacks]
+    wanted += [(file, anim_id) for *_rest, file, anim_id in air]
+    return list(dict.fromkeys(wanted))
+
+
 def main():
     src = Source()
     skeleton = next(d for _, n, d in src.files if n.endswith("Skeleton.hkx"))
@@ -73,19 +90,8 @@ def main():
     joint_index = [names.index(j) for j in JOINTS]
     oriented_index = [names.index(j) for j in ORIENTED]
 
-    weapons, attacks, air = gather(src)
-    wanted = [(file, anim_id) for _variant, file, anim_id in BASE + REACTIONS] + EXTRA
-    # Every stance a weapon can be held in: idle and guard, plus the full
-    # locomotion set that two-handed stances carry.
-    for weapon in weapons:
-        one, two = weapon["stance"]
-        wanted += [("a%02d" % one, STANCE_IDLE), ("a%02d" % one, STANCE_GUARD)]
-        wanted += [("a%02d" % two, anim_id) for anim_id in (STANCE_IDLE, STANCE_GUARD, *STANCE_LOCOMOTION)]
-    wanted = [(file, anim_id) for file, anim_id in wanted if src.hkx_name(file, anim_id)]
-    wanted += [(file, anim_id) for *_rest, file, anim_id in attacks]
-    wanted += [(file, anim_id) for *_rest, file, anim_id in air]
     clips = []
-    for file, anim_id in dict.fromkeys(wanted):
+    for file, anim_id in wanted_clips(src):
         name = clip_name(file, anim_id)
         # An animation may borrow another one's HKX.
         source = src.hkx_name(file, anim_id)

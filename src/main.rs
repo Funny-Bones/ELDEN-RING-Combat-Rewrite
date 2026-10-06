@@ -6,6 +6,7 @@
 use bevy::prelude::*;
 
 mod anim;
+mod audio;
 mod camera;
 mod hud;
 mod input;
@@ -55,7 +56,20 @@ Run it from the project folder, and bake the animations first with:
             std::process::exit(1);
         }
     };
-    App::new()
+    // Sounds are optional: without them the sandbox runs silent.
+    let sounds = match audio::Sounds::load() {
+        Ok(sounds) => Some(sounds),
+        Err(error) => {
+            eprintln!("No sound ({}: {error}). Bake it with:
+    python tools/bake_sounds.py", audio::PATH);
+            None
+        }
+    };
+    let mut app = App::new();
+    if let Some(sounds) = sounds {
+        app.insert_resource(sounds);
+    }
+    app
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Tarnished - movement & combat sandbox".into(),
@@ -85,6 +99,7 @@ Run it from the project folder, and bake the animations first with:
                 interpolate,
                 input::debug_keys,
                 rig::animate,
+                audio::play,
                 view::animate_dummy,
                 view::draw_grid,
                 camera::follow,

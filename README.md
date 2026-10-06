@@ -30,6 +30,9 @@ the tools here generate the data.
   Shield in the off hand.
 - **A sparring dummy** that can be set hostile, to test dodging, blocking and
   getting hit.
+- **Sound:** the game's own footsteps, cloth and armour movement, swings and
+  landings, on the frames the animations call for them, chosen and mixed the
+  way the game's Wwise banks say (random variations, layers, volumes).
 
 ## How faithful it is
 
@@ -39,6 +42,8 @@ Read from the game's files:
 - Root motion for every action, and walk / run / sprint / crouch speeds.
 - Attack stamina costs, motion values and each weapon's base attack.
 - The player skeleton and the animations themselves.
+- Which sounds each animation plays and on which frame, which recordings each
+  sound picks from, their volumes, and each weapon's swing-sound offset.
 
 Still estimated (all marked `ESTIMATE` in `src/sim/data.rs`):
 
@@ -47,6 +52,13 @@ Still estimated (all marked `ESTIMATE` in `src/sim/data.rs`):
 - Gravity after a jump's arc ends, and the fall-damage thresholds.
 - Locomotion acceleration and turn rates.
 - Hit shapes: a wedge in front of the character, not the game's capsules.
+
+Sound is the player's alone and not positional. Where the game picks a sound
+from the surroundings, the sandbox bakes one choice: dirt underfoot, leather
+armour and cloth shoes (`FLOOR_MATERIAL`, `ARMOUR_MATERIAL` and `SWITCHES` in
+`tools/bake_sounds.py`). Pitch and level vary a little each time, as the game
+does. A few weapon classes whose swings live in banks outside `cs_main` swing
+silently.
 
 Not included: weapon skills, parrying, stat scaling, the two-handing damage
 bonus, weapon-swap animations, heavier hit reactions (knockdowns, launches),
@@ -83,9 +95,10 @@ the dummy hostile, `F1` toggles the i-frame tint, `H` toggles the help overlay,
 You need Rust, Python 3.10 or newer, and Windows (the tools load the game's
 own decompression DLL).
 
-Two generated files are deliberately not in the repository, because they are
-derived from the game: the action table (`src/sim/extracted.rs`) and the baked
-animations (`assets/player_anims.bin`). The project will not compile or run
+Generated files are deliberately not in the repository, because they are
+derived from the game: the action table (`src/sim/extracted.rs`), the baked
+animations (`assets/player_anims.bin`) and the sounds
+(`assets/player_sounds.bin`, `assets/sounds/`). The project will not compile or run
 until you generate them from your own game files. That is one command once
 the files are unpacked.
 
@@ -95,8 +108,10 @@ the files are unpacked.
      `c0000.anibnd.dcx`, `c0000_a00_hi`, `c0000_a00_lo`, `c0000_a00_md`,
      `c0000_a0x`, `c0000_a1x`, `c0000_a2x`, `c0000_a3x` and `c0000_a4x`
      (each `.anibnd.dcx`). Use **Unpack** only, never **Patch**.
+   - With UXM Selective Unpack, also unpack `sd/cs_smain.bnk` and
+     `sd/enus/cs_main.bnk`, the sound banks.
    - With WitchyBND, unpack `regulation.bin` into a `regulation-bin` folder.
-   - Put the results in one folder, laid out as `chr/...` and
+   - Put the results in one folder, laid out as `chr/...`, `sd/...` and
      `regulation-bin/...`.
 
 2. **Tell the tools where things are.** They read two environment variables:
@@ -137,6 +152,12 @@ python tools/extract.py
 python tools/bake_anims.py
 ```
 
+```bash
+python tools/bake_sounds.py
+```
+
+Without the sounds the sandbox still runs, silently.
+
 ## Layout
 
 | Path | What it is |
@@ -150,11 +171,15 @@ python tools/bake_anims.py
 | `tools/setup.py` | Runs both generators below. |
 | `tools/extract.py` | Reads timings, root motion and params; writes `extracted.rs`. |
 | `tools/bake_anims.py` | Decodes the skeletal animations; writes `assets/player_anims.bin`. |
+| `tools/bake_sounds.py` | Resolves each animation's sound events in the Wwise banks; writes `assets/player_sounds.bin` and `assets/sounds/`. |
+| `tools/wwise.py`, `tools/wem.py` | Wwise bank reader, and Wwise Vorbis to Ogg Vorbis conversion (a port of ww2ogg, see `tools/ww2ogg/COPYING`). |
+| `src/audio.rs` | Plays the baked sounds as the animations pass their frames. |
 | `tools/*.py` (others) | Readers for the game's container, event, animation and param formats. |
 
 ## A note on the data
 
-`src/sim/extracted.rs` and `assets/player_anims.bin` are derived from the
-game's files, so neither is committed and both are in `.gitignore`. Please
+`src/sim/extracted.rs`, `assets/player_anims.bin`, `assets/player_sounds.bin`
+and `assets/sounds/` are derived from the game's files, so none is committed
+and all are in `.gitignore`. Please
 keep it that way in forks: share the code, and let each person generate the
 data from the copy of the game they own.

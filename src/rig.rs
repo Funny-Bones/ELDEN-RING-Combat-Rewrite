@@ -174,8 +174,11 @@ pub struct Rig {
     /// Pivot on the left-hand weapon bone, holding the shield.
     shield: Entity,
     armour: Handle<StandardMaterial>,
-    /// Clip currently playing and the pose being cross-faded out of.
-    clip: String,
+    /// Clip currently playing (and the frame and whether it loops, for its
+    /// sounds), and the pose being cross-faded out of.
+    pub clip: String,
+    pub frame: f32,
+    pub looped: bool,
     from: Vec<f32>,
     fade: f32,
     fade_len: f32,
@@ -293,6 +296,8 @@ pub fn setup(
         shield,
         armour,
         clip: String::new(),
+        frame: 0.0,
+        looped: false,
         from: Vec::new(),
         fade: 0.0,
         fade_len: 0.0,
@@ -389,6 +394,8 @@ pub fn animate(
     };
     clips.sample(clip, frame, looped, &mut target);
 
+    rig.frame = frame;
+    rig.looped = looped;
     // Cross-fade from whatever was on screen, over the clip's authored blend time.
     if name != rig.clip {
         rig.clip = name;
