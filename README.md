@@ -277,3 +277,12 @@ python tools/bake_sounds.py
 and `assets/sounds/` are derived from the game's files, so none is committed
 and all are in `.gitignore`. Please keep it that way in forks: share the code,
 and let each person generate the data from the copy of the game they own.
+
+## License
+
+The code is under the [MIT License](LICENSE.md). `tools/ww2ogg/` is a port of
+ww2ogg and keeps its own licence (`tools/ww2ogg/COPYING`).
+
+The licence covers this project's code only. It grants nothing over ELDEN
+RING or anything generated from its files, which remain FromSoftware's and
+Bandai Namco's.
