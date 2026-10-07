@@ -52,7 +52,7 @@ fn stance(p: &Player) -> u8 {
     match p.grip {
         Grip::OneHand => WEAPONS[p.weapon].stance[0],
         Grip::TwoHandRight => WEAPONS[p.weapon].stance[1],
-        Grip::TwoHandLeft => WEAPONS[SHIELD].stance[1],
+        Grip::TwoHandLeft => WEAPONS[p.left].stance[1],
     }
 }
 
@@ -176,8 +176,11 @@ pub struct Rig {
     /// Pivot on the right-hand weapon bone, and the models that can sit on it.
     sword: Entity,
     weapons: Vec<Entity>,
+    /// The same models again on the left-hand bone.
+    left_weapons: Vec<Entity>,
     right_shield: Entity,
-    /// Pivot on the left-hand weapon bone, holding the shield.
+    left_shield: Entity,
+    /// Pivot on the left-hand weapon bone.
     shield: Entity,
     armour: Handle<StandardMaterial>,
     /// Clip currently playing (and the frame and whether it loops, for its
@@ -279,23 +282,32 @@ pub fn setup(
     let group = |c: &mut Commands, parent: Entity| {
         c.spawn((Transform::default(), Visibility::Hidden, ChildOf(parent))).id()
     };
+    // The shield lives on the left-hand bone, or on the right one while it is
+    // two-handed. So can any weapon.
+    let shield = pivot(c);
     let mut weapons = Vec::new();
+    let mut left_weapons = Vec::new();
     for parts in WEAPON_PARTS {
-        let model = group(c, sword);
-        for &(size, at, stuff) in *parts {
-            let material = match stuff {
-                Stuff::Steel => &steel,
-                Stuff::Wood => &wood,
-            };
-            part(c, model, Cuboid::from_size(Vec3::from(size)).into(), material, Vec3::from(at));
+        for (hand, models) in [(sword, &mut weapons), (shield, &mut left_weapons)] {
+            let model = group(c, hand);
+            if hand == shield {
+                // The left-hand bone is the right one mirrored: its tip is the other way.
+                c.entity(model).insert(Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::PI)));
+            }
+            for &(size, at, stuff) in *parts {
+                let material = match stuff {
+                    Stuff::Steel => &steel,
+                    Stuff::Wood => &wood,
+                };
+                part(c, model, Cuboid::from_size(Vec3::from(size)).into(), material, Vec3::from(at));
+            }
+            models.push(model);
         }
-        weapons.push(model);
     }
 
-    // The shield lives on the left-hand bone, or on the right one while it is two-handed.
-    let shield = pivot(c);
     let right_shield = group(c, sword);
-    for parent in [shield, right_shield] {
+    let left_shield = group(c, shield);
+    for parent in [left_shield, right_shield] {
         part(c, parent, Cuboid::new(0.56, 0.42, 0.045).into(), &wood, Vec3::ZERO);
         part(c, parent, Cuboid::new(0.14, 0.14, 0.06).into(), &steel, Vec3::ZERO);
     }
@@ -307,7 +319,9 @@ pub fn setup(
         head,
         sword,
         weapons,
+        left_weapons,
         right_shield,
+        left_shield,
         shield,
         armour,
         clip: String::new(),
@@ -547,11 +561,17 @@ pub fn animate(
             }
         }
     };
+    // Two-handing the left armament brings it over to the right hand.
+    let one_handed = player.grip == Grip::OneHand;
+    let in_right = if player.grip == Grip::TwoHandLeft { player.left } else { player.weapon };
     for (index, &model) in rig.weapons.iter().enumerate() {
-        show(model, index == player.weapon && player.grip != Grip::TwoHandLeft);
+        show(model, index == in_right);
     }
-    show(rig.right_shield, player.grip == Grip::TwoHandLeft);
-    show(rig.shield, player.grip == Grip::OneHand);
+    for (index, &model) in rig.left_weapons.iter().enumerate() {
+        show(model, one_handed && index == player.left);
+    }
+    show(rig.right_shield, in_right == SHIELD);
+    show(rig.left_shield, one_handed && player.left == SHIELD);
 
     // --- Foot placement ---------------------------------------------------
     // On stairs the simulation snaps the character up or down a whole step.

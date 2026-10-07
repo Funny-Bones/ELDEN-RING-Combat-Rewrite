@@ -40,6 +40,7 @@ enum Key {
     TwoHandRight,
     TwoHandLeft,
     NextWeapon,
+    NextLeft,
 }
 
 #[derive(Clone, Copy)]
@@ -286,6 +287,7 @@ impl Director {
             two_hand_right: matches!(key, Some(Key::TwoHandRight)),
             two_hand_left: matches!(key, Some(Key::TwoHandLeft)),
             next_weapon: matches!(key, Some(Key::NextWeapon)),
+            next_left: matches!(key, Some(Key::NextLeft)),
         };
         self.was_held = held;
         Some(input)
@@ -298,6 +300,13 @@ fn refresh(world: &mut World) {
     if world.dummy.alive() {
         world.dummy.hp = dummy::MAX_HP;
     }
+}
+
+/// Puts the named weapon in both hands.
+fn pair(world: &mut World, name: &str) {
+    let weapon = WEAPONS.iter().position(|info| info.name == name).unwrap();
+    world.player.weapon = weapon;
+    world.player.left = weapon;
 }
 
 fn hostile(world: &mut World) {
@@ -569,6 +578,10 @@ fn script() -> Vec<Step> {
         free,
         Attack(Btn::Heavy),
         free,
+        Say("A two-handed weapon guards"),
+        Hold(Btn::Guard, true),
+        Wait(70),
+        Hold(Btn::Guard, false),
         Wait(15),
         Do(refresh),
         Say("Two-handing the shield"),
@@ -583,6 +596,94 @@ fn script() -> Vec<Step> {
         Say("Back to one hand each"),
         Press(Key::TwoHandLeft),
         Wait(60),
+    ]);
+
+    // --- The left hand ----------------------------------------------------------
+    s.extend([
+        Do(refresh),
+        Say("Off-hand: nothing, so it punches"),
+        Range(2.2),
+        Press(Key::NextLeft),
+        Wait(60),
+        Range(1.3),
+        Attack(Btn::Guard),
+        Attack(Btn::Guard),
+        free,
+        Say("Off-hand: torch"),
+        Range(2.2),
+        Press(Key::NextLeft),
+        Wait(60),
+        Range(1.4),
+        Attack(Btn::Guard),
+        Attack(Btn::Guard),
+        free,
+        Say("Off-hand: a dagger, with its own attacks"),
+        Range(2.2),
+        Press(Key::NextLeft),
+        Wait(60),
+        Range(1.4),
+        Attack(Btn::Guard),
+        Attack(Btn::Guard),
+        Attack(Btn::Guard),
+        free,
+        Do(refresh),
+        Say("The same weapon in each hand: paired attacks"),
+        Range(2.2),
+        Press(Key::NextLeft),
+        Wait(60),
+        Range(1.7),
+        Attack(Btn::Guard),
+        Attack(Btn::Guard),
+        Attack(Btn::Guard),
+        Attack(Btn::Guard),
+        free,
+        Wait(15),
+        Do(refresh),
+        Say("Paired running attack"),
+        Range(9.0),
+        Charge(3.4),
+        Attack(Btn::Guard),
+        stop,
+        free,
+        Wait(15),
+        Say("Paired rolling attack"),
+        Range(5.5),
+        Stick(FORWARD, Gait::Run),
+        Tap(Btn::Dodge),
+        stop,
+        Attack(Btn::Guard),
+        free,
+        Wait(15),
+        Do(refresh),
+        Say("Paired jump attack"),
+        Range(4.0),
+        Stick(FORWARD, Gait::Run),
+        Wait(10),
+        Tap(Btn::Jump),
+        Attack(Btn::Guard),
+        stop,
+        free,
+        Wait(15),
+    ]);
+    let pairs: [(&str, fn(&mut World)); 6] = [
+        ("Paired greatswords", |w| pair(w, "Greatsword")),
+        ("Paired twinblades", |w| pair(w, "Twinblade")),
+        ("Paired great hammers", |w| pair(w, "Great Hammer")),
+        ("Paired halberds", |w| pair(w, "Halberd")),
+        ("Paired claws", |w| pair(w, "Claw")),
+        ("Paired whips", |w| pair(w, "Whip")),
+    ];
+    for (caption, equip) in pairs {
+        s.extend([Do(refresh), Range(2.4), Do(equip), Say(caption), Wait(30), Range(1.5), Attack(Btn::Guard), Attack(Btn::Guard), free]);
+    }
+    s.extend([
+        Range(2.4),
+        Do(|w| {
+            w.player.weapon = DEFAULT_WEAPON;
+            w.player.left = SHIELD;
+        }),
+        Say("Sword and shield again"),
+        Wait(45),
     ]);
 
     // --- Every weapon class -----------------------------------------------------
@@ -850,6 +951,13 @@ mod tests {
             "JumpLightLand",
             "JumpHeavyLand",
             "GuardCounter)",
+            "LeftLight1)",
+            "LeftLight2)",
+            "PairedLight1)",
+            "PairedLight4)",
+            "PairedRun)",
+            "PairedRoll)",
+            "PairedJumpLand",
             "GuardHit",
             "Hurt(Small",
             "Hurt(Middle",
@@ -864,6 +972,7 @@ mod tests {
         }
         assert_eq!(weapons.len(), SHIELD, "every weapon class is shown");
         assert_eq!(grips.len(), 3, "every grip is shown");
+        assert_eq!(world.player.left, SHIELD);
         assert!(top > 20.0, "it reaches the top of the stairs");
         assert_eq!(world.player.weapon, DEFAULT_WEAPON);
     }

@@ -36,16 +36,17 @@ WASD move   Mouse look   Alt walk
 Space tap: roll / backstep (on release)
 Space hold: sprint        F jump   X crouch
 LMB light   Shift+LMB heavy (hold to charge)
-RMB guard   then Shift+LMB: guard counter
-E+LMB two-hand weapon   E+RMB two-hand shield
-Right arrow: next weapon
+RMB guard, or attack with a left-hand weapon
+  after a block, Shift+LMB: guard counter
+E+LMB two-hand right   E+RMB two-hand left
+Right / Left arrow: next weapon / off-hand
 Q / MMB lock-on
 1/2/3 light/medium/heavy load
 T dummy hostile   F1 i-frame tint   H help
 ENTER play the demo (ENTER again stops it)
 Pad: B dodge/sprint  A jump  RB/RT attack
      LB guard  L3 crouch  R3 lock-on
-     Y+RB / Y+LB two-hand  D-pad right: weapon";
+     Y+RB / Y+LB two-hand  D-pad right/left: weapon/off-hand";
 
 pub fn setup(mut commands: Commands) {
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
@@ -282,9 +283,11 @@ fn debug_text(world: &crate::sim::World) -> String {
         p.speed,
         p.pos.y,
         match p.grip {
-            Grip::OneHand => format!("{} + Shield", WEAPONS[p.weapon].name),
+            Grip::OneHand if p.paired() => format!("{} in each hand (paired)", WEAPONS[p.weapon].name),
+            Grip::OneHand if p.left == FIST => format!("{} + empty hand", WEAPONS[p.weapon].name),
+            Grip::OneHand => format!("{} + {}", WEAPONS[p.weapon].name, WEAPONS[p.left].name),
             Grip::TwoHandRight => format!("{} (two-handed)", WEAPONS[p.weapon].name),
-            Grip::TwoHandLeft => "Shield (two-handed)".to_string(),
+            Grip::TwoHandLeft => format!("{} (two-handed)", WEAPONS[p.left].name),
         },
         p.load,
         if p.in_combat { "IN COMBAT (sprint drains)" } else { "out of combat (sprint is free)" },

@@ -14,8 +14,8 @@ use bevy::math::Vec3;
 
 use super::extracted;
 pub use super::extracted::{
-    CROUCH_RUN_SPEED, CROUCH_WALK_SPEED, DEFAULT_WEAPON, MAX_HP, MAX_STAMINA, RUN_BACK_SPEED, RUN_SIDE_SPEED, RUN_SPEED, SHIELD,
-    SPRINT_SPEED, WALK_SPEED, WEAPONS,
+    CROUCH_RUN_SPEED, CROUCH_WALK_SPEED, DEFAULT_WEAPON, FIST, MAX_HP, MAX_STAMINA, RUN_BACK_SPEED, RUN_SIDE_SPEED, RUN_SPEED, SHIELD,
+    SPRINT_SPEED, TORCH, WALK_SPEED, WEAPONS,
 };
 
 pub const ANIM_FPS: f32 = 30.0;
@@ -80,6 +80,10 @@ pub const FALL_DEATH: f32 = 20.0;
 
 // --- Combat (ESTIMATE) -----------------------------------------------------
 
+/// Share of an attack's hit-stop time (which is the game's) that is applied.
+/// ESTIMATE: the full time reads as a stall here, so the game presumably
+/// does not freeze for all of it.
+pub const HIT_STOP_SCALE: f32 = 0.5;
 /// Frames after a block during which a heavy attack becomes a guard counter.
 pub const GUARD_COUNTER_WINDOW: f32 = 20.0;
 /// Frames for the shield to come up before it actually blocks.
@@ -183,6 +187,8 @@ pub enum SwapKind {
     ToOneHandFromRight,
     ToOneHandFromLeft,
     NextWeapon,
+    /// Changing what the left hand holds.
+    NextLeft,
 }
 
 impl SwapKind {
@@ -231,6 +237,11 @@ impl Moveset {
         extracted::air_attack(self.weapon as usize, self.two_hand, heavy)
     }
 
+    /// The jump attack with a weapon in each hand.
+    pub fn air_paired(self) -> Option<AirAttackDef> {
+        extracted::air_paired(self.weapon as usize)
+    }
+
     pub fn info(self) -> &'static WeaponInfo {
         &WEAPONS[self.weapon as usize]
     }
@@ -262,6 +273,26 @@ pub enum AttackKind {
     JumpLightLandShort,
     JumpHeavyLand,
     JumpHeavyLandShort,
+    /// The left-hand weapon's own chain.
+    LeftLight1,
+    LeftLight2,
+    LeftLight3,
+    LeftLight4,
+    LeftLight5,
+    LeftLight6,
+    /// With the same class of weapon in each hand ("power stance"): both
+    /// weapons, on the left attack button.
+    PairedLight1,
+    PairedLight2,
+    PairedLight3,
+    PairedLight4,
+    PairedLight5,
+    PairedLight6,
+    PairedRun,
+    PairedRoll,
+    PairedBackstep,
+    PairedJumpLand,
+    PairedJumpLandShort,
 }
 
 impl AttackKind {
@@ -274,6 +305,32 @@ impl AttackKind {
             Light3 => Light4,
             Light4 => Light5,
             Light5 => Light6,
+            _ => return None,
+        })
+    }
+
+    /// The next swing of the left hand's chain, if this is one.
+    pub fn next_left(self) -> Option<AttackKind> {
+        use AttackKind::*;
+        Some(match self {
+            LeftLight1 => LeftLight2,
+            LeftLight2 => LeftLight3,
+            LeftLight3 => LeftLight4,
+            LeftLight4 => LeftLight5,
+            LeftLight5 => LeftLight6,
+            _ => return None,
+        })
+    }
+
+    /// The next swing of the paired chain, if this is one.
+    pub fn next_paired(self) -> Option<AttackKind> {
+        use AttackKind::*;
+        Some(match self {
+            PairedLight1 => PairedLight2,
+            PairedLight2 => PairedLight3,
+            PairedLight3 => PairedLight4,
+            PairedLight4 => PairedLight5,
+            PairedLight5 => PairedLight6,
             _ => return None,
         })
     }
@@ -340,6 +397,8 @@ pub struct ActionDef {
     pub cancel_jump: f32,
     pub cancel_guard: f32,
     pub cancel_move: f32,
+    /// From when a left-hand attack can take over.
+    pub cancel_left: f32,
     /// Invincibility window, `from <= frame < to`.
     pub iframes: (f32, f32),
     /// Low attacks pass underneath while this is airborne.

@@ -178,8 +178,8 @@ impl World {
         let outcome = self.dummy.take_hit(damage, hit.guard_damage * 5.0);
         self.player.mark_hit();
         // The blow lands: both freeze for a moment before carrying on.
-        self.player.hit_stop = hit.stop;
-        self.dummy.hit_stop = hit.stop;
+        self.player.hit_stop = hit.stop * HIT_STOP_SCALE;
+        self.dummy.hit_stop = hit.stop * HIT_STOP_SCALE;
         self.log.push(format!("Hit for {damage:.0}{outcome}"));
     }
 }

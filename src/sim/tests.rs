@@ -974,7 +974,7 @@ fn landing_a_hit_freezes_both_sides_for_the_attacks_hit_stop() {
         ticks += 1;
         assert_eq!(action(&w).unwrap().1, frozen_at, "the swing holds still");
     }
-    assert_eq!(ticks, 5, "0.08 s at 60 Hz");
+    assert_eq!(ticks, 3, "half of 0.08 s, at 60 Hz");
     w.step(&idle());
     assert!(action(&w).unwrap().1 > frozen_at, "then it carries on");
 
@@ -1020,4 +1020,152 @@ fn a_swing_only_hits_when_the_blade_reaches_the_target() {
     w.step(&Input { light: DOWN, ..idle() });
     run(&mut w, idle(), 120);
     assert_eq!(w.dummy.hp, super::dummy::MAX_HP, "the thrust goes past");
+}
+
+fn weapon_named(name: &str) -> usize {
+    WEAPONS.iter().position(|info| info.name == name).unwrap()
+}
+
+const GUARD_TAP: Input = Input {
+    mv: Vec2::ZERO,
+    cam_yaw: 0.0,
+    dodge: UP,
+    jump: UP,
+    light: UP,
+    heavy: UP,
+    guard: DOWN,
+    crouch: false,
+    lock: false,
+    walk: false,
+    two_hand_right: false,
+    two_hand_left: false,
+    next_weapon: false,
+    next_left: false,
+};
+
+#[test]
+fn a_weapon_in_the_left_hand_attacks_on_the_left_button() {
+    let mut w = world();
+    w.player.left = weapon_named("Dagger");
+    w.player.pos = Vec3::new(0.0, 0.0, 6.6);
+    w.step(&GUARD_TAP);
+    let left = Moveset { weapon: weapon_named("Dagger") as u8, two_hand: false };
+    assert_eq!(id(&w), Some(ActionId::Attack(left, AttackKind::LeftLight1)));
+    assert_eq!(id(&w).unwrap().def().source, "a020_035000");
+    assert!(!w.player.guarding, "a left-hand weapon does not guard");
+    // It is the dagger in the left hand that does the damage.
+    let before = w.dummy.hp;
+    let mut chained = false;
+    for _ in 0..200 {
+        w.step(&GUARD_TAP);
+        chained |= id(&w) == Some(ActionId::Attack(left, AttackKind::LeftLight2));
+    }
+    assert!(chained, "pressing again chains into the second left-hand swing");
+    assert!(w.dummy.hp < before);
+    assert!(w.log.iter().any(|line| line.starts_with("Hit for 74")), "the dagger's attack, not the sword's: {:?}", w.log);
+}
+
+#[test]
+fn the_same_class_in_each_hand_fights_as_a_pair() {
+    let mut w = world();
+    w.player.left = w.player.weapon;
+    assert!(w.player.paired());
+    w.player.pos = Vec3::new(0.0, 0.0, 6.5);
+    w.step(&GUARD_TAP);
+    let def = id(&w).unwrap().def();
+    assert_eq!((def.name, def.source), ("PairedLight1", "a023_034000"));
+    assert_eq!(def.hits.len(), 2, "one hit from each sword");
+    let before = w.dummy.hp;
+    run(&mut w, idle(), 200);
+    let attack = WEAPONS[w.player.weapon].attack;
+    let expected: f32 = def.hits.iter().map(|hit| hit.mv * attack).sum();
+    assert!((before - w.dummy.hp - expected).abs() < 1e-2, "both swords land");
+
+    // The right-hand button is still the ordinary one-handed chain.
+    let mut w = world();
+    w.player.left = w.player.weapon;
+    w.step(&Input { light: DOWN, ..idle() });
+    assert_eq!(id(&w), Some(atk(AttackKind::Light1)));
+
+    // Different classes do not pair: the left one just attacks on its own.
+    let mut w = world();
+    w.player.left = weapon_named("Club");
+    assert!(!w.player.paired());
+
+    // After a roll, and out of a sprint, the pair has its own attacks.
+    let mut w = world();
+    w.player.left = w.player.weapon;
+    w.step(&Input { dodge: Button { held: false, pressed: true, released: true }, ..forward() });
+    assert!(matches!(id(&w), Some(ActionId::Roll(..))));
+    while matches!(id(&w), Some(ActionId::Roll(..))) {
+        w.step(&GUARD_TAP);
+    }
+    assert_eq!(id(&w), Some(atk(AttackKind::PairedRoll)));
+}
+
+#[test]
+fn every_weapon_class_has_its_left_hand_and_paired_attacks() {
+    let mut without_pair = Vec::new();
+    for (index, info) in WEAPONS.iter().enumerate() {
+        let moveset = Moveset { weapon: index as u8, two_hand: false };
+        if index == SHIELD {
+            assert!(!moveset.has(AttackKind::LeftLight1), "the shield guards instead");
+            continue;
+        }
+        let left = moveset.attack(AttackKind::LeftLight1).unwrap_or_else(|| panic!("{} has no left-hand attack", info.name));
+        assert!(!left.hits.is_empty());
+        if !moveset.has(AttackKind::PairedLight1) {
+            without_pair.push(info.name);
+            continue;
+        }
+        let paired = moveset.attack(AttackKind::PairedLight1).unwrap();
+        assert!(paired.hits.len() >= 2, "{} paired", info.name);
+        assert!(moveset.air_paired().is_some(), "{} paired jump attack", info.name);
+    }
+    assert_eq!(without_pair, ["Curved Greatsword", "Torch"]);
+}
+
+#[test]
+fn the_left_hand_cycles_through_shield_nothing_torch_and_weapons() {
+    use super::player::next_left_hand;
+    let mut seen = vec![SHIELD];
+    while seen.len() < WEAPONS.len() {
+        seen.push(next_left_hand(*seen.last().unwrap()));
+    }
+    assert_eq!(&seen[..4], &[SHIELD, FIST, TORCH, 0]);
+    assert_eq!(next_left_hand(*seen.last().unwrap()), SHIELD, "and round again");
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen.len(), WEAPONS.len(), "every armament once");
+
+    // In play it is a swap like any other: the change lands part-way through.
+    let mut w = world();
+    w.step(&Input { next_left: true, ..idle() });
+    assert_eq!(w.player.swap.unwrap().kind, SwapKind::NextLeft);
+    assert_eq!(w.player.left, SHIELD);
+    run(&mut w, idle(), 80);
+    assert_eq!(w.player.left, FIST);
+    // An empty hand punches.
+    w.step(&GUARD_TAP);
+    let fist = Moveset { weapon: FIST as u8, two_hand: false };
+    assert_eq!(id(&w), Some(ActionId::Attack(fist, AttackKind::LeftLight1)));
+}
+
+#[test]
+fn a_two_handed_weapon_guards() {
+    use super::player::{HitResult, Incoming};
+    let mut w = world();
+    w.player.grip = Grip::TwoHandRight;
+    let guard = Input { guard: Button { held: true, pressed: false, released: false }, ..idle() };
+    run(&mut w, guard, 20);
+    assert!(w.player.guard_up());
+    let hit = Incoming { damage: 100.0, stamina: 20.0, from: Vec3::Z, low: false, level: HurtLevel::Middle };
+    assert_eq!(w.player.receive_hit(&hit, &Level::flat()), HitResult::Blocked);
+    assert_eq!(w.player.hp, MAX_HP);
+
+    // A weapon in the left hand, held one-handed, does not.
+    let mut w = world();
+    w.player.left = weapon_named("Club");
+    run(&mut w, guard, 20);
+    assert!(!w.player.guard_up());
 }

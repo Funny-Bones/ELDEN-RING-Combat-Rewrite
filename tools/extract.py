@@ -88,7 +88,7 @@ BLADES = {
     "Curved Sword": ((0.0, 0.1), (0.04, 0.9)),
     "Curved Greatsword": ((0.0, 0.13), (0.06, 1.43)),
     "Twinblade": ((0.0, -1.05), (0.0, 1.05)),
-    "Great Hammer": ((0.0, 0.85), (0.0, 1.16)),
+    "Great Hammer": ((0.0, 0.55), (0.0, 1.16)),
     "Flail": ((0.0, 0.5), (0.0, 0.74)),
     "Greataxe": ((0.0, 0.75), (0.2, 1.12)),
     "Great Spear": ((0.0, 0.8), (0.0, 2.26)),
@@ -96,7 +96,7 @@ BLADES = {
     "Whip": ((0.0, 0.1), (0.0, 2.08)),
     "Fist": ((0.0, -0.03), (0.0, 0.09)),
     "Claw": ((0.0, 0.0), (0.0, 0.34)),
-    "Colossal Weapon": ((0.0, 0.9), (0.0, 1.56)),
+    "Colossal Weapon": ((0.0, 0.6), (0.0, 1.56)),
     "Torch": ((0.0, 0.2), (0.0, 0.53)),
     "Shield": ((-0.28, 0.0), (0.28, 0.0)),
 }
@@ -111,14 +111,26 @@ ATTACKS = [
     ("GuardCounter", 30700),
     ("JumpLightLand", 31070), ("JumpLightLandShort", 31071),
     ("JumpHeavyLand", 31270), ("JumpHeavyLandShort", 31271),
+    # With a weapon in the left hand: its own chain on the left attack button.
+    *[("LeftLight%d" % (i + 1), 35000 + 10 * i) for i in range(6)],
+    # With the same class of weapon in each hand, that button is a paired
+    # ("power stance") moveset instead.
+    *[("PairedLight%d" % (i + 1), 34000 + 10 * i) for i in range(6)],
+    ("PairedRun", 34200), ("PairedRoll", 34300), ("PairedBackstep", 34400),
+    ("PairedJumpLand", 34570), ("PairedJumpLandShort", 34571),
 ]
 AIR_LIGHT, AIR_HEAVY = 31030, 31230
+# The jump attack with a weapon in each hand.
+AIR_PAIRED = 34530
 TWO_HAND_OFFSET = 2000
 
 # ChrActionFlag ids (event type 0).
 F_NO_TURN, F_DODGING, F_CANCEL_RH, F_CANCEL_MOVE = 7, 8, 4, 11
 F_CANCEL_GUARD, F_IN_DODGE, F_CANCEL_DODGE, F_CANCEL_JUMP = 22, 25, 26, 32
 F_IN_COMMON, F_CANCEL_R1, F_CANCEL_R2, F_JUMP_FRAMES = 87, 115, 116, 132
+# From when the left-hand attack button takes over: inside a paired chain,
+# and anywhere else.
+F_CANCEL_L1_PAIRED, F_CANCEL_LH = 117, 16
 SP_CHARGING = 100280
 EVENT_BLEND = 16
 
@@ -186,13 +198,16 @@ PACKS_REACTIONS = ("c0000_a00_md", "c0000_a00_lo")  # also hold the swap clips
 # Each is a short reach for the weapon, during which the change takes effect,
 # followed by a settle. The game plays them on the upper body only. Each end
 # is the one whose first pose is exactly the start's last pose; every start
-# begins, and every end finishes, in the neutral stance.
+# begins, and every end finishes, in the neutral stance. 29000 is the right
+# hand reaching for its weapon and 29030 the left. Two-handing borrows the
+# *other* hand's reach, because that is the hand putting something away.
 SWAPS = [
     ("ToTwoHandRight", 29060, 29050),
     ("ToTwoHandLeft", 29080, 29020),
     ("ToOneHandFromRight", 29040, 29050),
     ("ToOneHandFromLeft", 29010, 29020),
     ("NextWeapon", 29000, 29020),
+    ("NextLeft", 29030, 29050),
 ]
 EVENT_SET_STYLE, EVENT_SWITCH_WEAPON = 32, 33
 
@@ -278,6 +293,9 @@ class Source:
                 local[b] = transform
             position, rotation = fk(parents, local)[bone][:2]
             across, along = qrot(rotation, (1, 0, 0)), qrot(rotation, (0, 1, 0))
+            if left_hand:
+                # The left-hand bone is the right one mirrored: its tip is the other way.
+                along = [-v for v in along]
             row = []
             for x, y in span:
                 point = [position[i] + across[i] * x + along[i] * y for i in range(3)]
@@ -414,6 +432,9 @@ def action_def(src, name, file, anim_id, variation, reaction=False, span=None):
         "guard": first(anim, F_CANCEL_GUARD),
         "move": first(anim, F_CANCEL_MOVE),
     }
+    cancel["left"] = first(anim, F_CANCEL_L1_PAIRED, F_CANCEL_LH)
+    if cancel["left"] == NEVER:
+        cancel["left"] = cancel["light"]
     if reaction:
         common = in_dodge = 0.0
         if "Knockdown" not in name:
@@ -439,6 +460,7 @@ def action_def(src, name, file, anim_id, variation, reaction=False, span=None):
         cost, mv, stam_dmg, hit_stop, radius, left_hand = got
         if mv <= 0.0:
             continue
+        left_hand = left_handed(name, judge, left_hand)
         blade = src.blade(file, anim_id, start, end, left_hand, span)
         hit_list.append(
             "Hit { from: %.1f, to: %.1f, mv: %.2f, guard_damage: %.2f, stamina: %.1f, stop: %.3f, radius: %.2f, blade: %s }"
@@ -460,6 +482,7 @@ def action_def(src, name, file, anim_id, variation, reaction=False, span=None):
         "cancel_jump: %s" % fnum(cancel["jump"]),
         "cancel_guard: %s" % fnum(cancel["guard"]),
         "cancel_move: %s" % fnum(cancel["move"]),
+        "cancel_left: %s" % fnum(cancel["left"]),
         "iframes: (%.1f, %.1f)" % iframes,
         "jump_frames: %s" % str(bool(windows(anim, F_JUMP_FRAMES))).lower(),
         "stamina: %.1f" % stamina,
@@ -470,6 +493,17 @@ def action_def(src, name, file, anim_id, variation, reaction=False, span=None):
         "motion: &[" + ", ".join("[%.3f, %.3f, %.3f]" % m for m in motion) + "]",
     ]
     return "ActionDef { " + ", ".join(fields) + " }"
+
+
+def left_handed(kind, judge, by_anchor):
+    """Whether a hit is the left-hand weapon's. Off-hand attacks always are.
+    Paired attacks number their hits x0 for the right hand and x5 for the left,
+    which matches which weapon is moving through each hit's window."""
+    if kind.startswith("Left"):
+        return True
+    if kind.startswith("Paired"):
+        return judge % 10 >= 5
+    return by_anchor
 
 
 def blade_literal(blade):
@@ -508,6 +542,9 @@ def gather(src):
         for two_hand in (False, True):
             offset = TWO_HAND_OFFSET if two_hand else 0
             for kind, base_id in ATTACKS:
+                # Off-hand and paired attacks only exist with a weapon in each hand.
+                if two_hand and kind.startswith(("Left", "Paired")):
+                    continue
                 anim_id = base_id + offset
                 literal = action_def(src, kind, weapon["file"], anim_id, weapon["variation"], span=weapon["blade"])
                 if not literal:
@@ -531,6 +568,16 @@ def gather(src):
                 cost, radius, left_hand = got[0], got[4], got[5]
                 blade = src.blade(weapon["file"], anim_id, start, end, left_hand, weapon["blade"])
                 air.append((index, two_hand, heavy, start, end, cost, radius, blade, weapon["file"], anim_id))
+        # The paired jump attack: its first damaging hit.
+        anim = src.anim(weapon["file"], AIR_PAIRED)
+        if anim is not None and src.hkx_name(weapon["file"], AIR_PAIRED) is not None:
+            for start, end, judge in hit_events(anim):
+                got = src.judge(weapon["variation"], judge)
+                if not got or got[1] <= 0.0:
+                    continue
+                blade = src.blade(weapon["file"], AIR_PAIRED, start, end, left_handed("Paired", judge, got[5]), weapon["blade"])
+                air.append((index, False, "paired", start, end, got[0], got[4], blade, weapon["file"], AIR_PAIRED))
+                break
     return weapons, attacks, air
 
 
@@ -574,6 +621,9 @@ def main():
         "pub const DEFAULT_WEAPON: usize = %d;" % names.index(DEFAULT_WEAPON),
         "/// What the left hand holds.",
         "pub const SHIELD: usize = %d;" % (len(weapons) - 1),
+        "/// The bare hand.",
+        "pub const FIST: usize = %d;" % names.index("Fist"),
+        "pub const TORCH: usize = %d;" % names.index("Torch"),
         "",
         "#[rustfmt::skip]",
         "pub fn base(id: ActionId) -> Option<ActionDef> {",
@@ -604,7 +654,12 @@ def main():
         "pub fn air_attack(weapon: usize, two_hand: bool, heavy: bool) -> Option<AirAttackDef> {",
         "    Some(match (weapon, two_hand, heavy) {",
     ]
+    air_literal = (
+        'AirAttackDef { from: %.1f, to: %.1f, stamina: %.1f, source: "%s", radius: %.2f, blade: %s }'
+    )
     for index, two_hand, heavy, start, end, cost, radius, blade, file, anim_id in air:
+        if heavy == "paired":
+            continue
         out.append(
             '        (%d, %s, %s) => AirAttackDef { from: %.1f, to: %.1f, stamina: %.1f, source: "%s", radius: %.2f, blade: %s },'
             % (
@@ -612,6 +667,18 @@ def main():
                 blade_literal(blade),
             )
         )
+    out += ["        _ => return None,", "    })", "}", ""]
+
+    out += [
+        "/// The jump attack with a weapon in each hand.",
+        "#[rustfmt::skip]",
+        "pub fn air_paired(weapon: usize) -> Option<AirAttackDef> {",
+        "    Some(match weapon {",
+    ]
+    for index, _two_hand, heavy, start, end, cost, radius, blade, file, anim_id in air:
+        if heavy == "paired":
+            literal = air_literal % (start, end, cost, clip_name(file, anim_id), radius, blade_literal(blade))
+            out.append("        %d => %s," % (index, literal))
     out += ["        _ => return None,", "    })", "}", ""]
 
     out += [

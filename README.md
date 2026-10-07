@@ -46,7 +46,14 @@ the tools here generate the data.
 - Hits land when the weapon itself reaches the target, not when the swing
   starts: stand too far away, or beside a thrust, and it misses.
 - Hit-stop: attacker and target freeze for an instant when a blow lands.
-- Guarding, guard hits and guard break.
+- Guarding with the shield, or with any weapon held in both hands; guard
+  hits and guard break.
+- The left hand: a shield, a torch, nothing, or a second weapon. Anything
+  but the shield attacks on the guard button, with that weapon's own
+  left-hand chain.
+- Paired weapons ("power stance"): the same class in each hand turns the
+  left button into a moveset that uses both, with its own chain and its own
+  running, rolling, backstep and jump attacks. 22 of the classes have one.
 - Hit reactions in four strengths and four directions: a flinch, a stagger, a
   large stagger, and a knockdown that throws you back, keeps you invincible
   while you are down and lets you roll out early.
@@ -58,8 +65,8 @@ the tools here generate the data.
 Dagger, Longsword, Claymore, Greatsword, Rapier, Uchigatana, Club, Battle Axe,
 Short Spear, Halberd, Heavy Thrusting Sword, Curved Sword, Curved Greatsword,
 Twinblade, Great Hammer, Flail, Greataxe, Great Spear, Reaper, Whip, Fist,
-Claw, Colossal Weapon and Torch, plus a Shield in the off hand that can be
-two-handed too.
+Claw, Colossal Weapon and Torch, plus a Shield. Any of them can go in the
+left hand, and whatever is there can be two-handed too.
 
 ### The sparring dummy
 
@@ -127,6 +134,8 @@ read. Two inferences worth knowing about:
 
 - Which large-stagger animation answers a hit from which side is picked from
   the way the head snaps.
+- In a paired attack, which hit belongs to which hand is read from how the
+  game numbers them, checked against which weapon is moving at the time.
 - An attack that follows a running, rolling, backstep or crouch attack goes
   straight into the second light attack. The game has short transition clips
   there, but they carry no timing of their own.
@@ -155,11 +164,12 @@ silently.
 | Crouch | X | L3 |
 | Light attack | Left click | RB |
 | Heavy attack (hold to charge) | Shift + left click | RT |
-| Guard | Right click | LB |
+| Guard, or left-hand attack | Right click | LB |
 | Guard counter | Shift + left click after blocking a hit | RT after blocking a hit |
 | Two-hand right weapon | E + left click | Y + RB |
 | Two-hand left armament | E + right click | Y + LB |
 | Next weapon | Right arrow | D-pad right |
+| Next off-hand (shield, nothing, torch, each weapon) | Left arrow | D-pad left |
 | Lock on | Q or middle click | R3 |
 
 Sandbox keys: `1` / `2` / `3` set light / medium / heavy equip load, `T` makes

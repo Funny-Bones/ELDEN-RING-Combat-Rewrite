@@ -36,6 +36,8 @@ pub struct Input {
     pub two_hand_left: bool,
     /// Swap to the next right-hand weapon.
     pub next_weapon: bool,
+    /// Swap what the left hand holds.
+    pub next_left: bool,
 }
 
 impl Input {
@@ -59,8 +61,17 @@ impl Input {
 pub enum Req {
     Light,
     Heavy,
+    /// The left-hand attack, when the left hand holds something to attack with.
+    Left,
     Dodge,
     Jump,
+}
+
+/// What the left-hand button does with the current armaments.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LeftButton {
+    Guard,
+    Attack,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +93,7 @@ pub struct Swap {
     /// What will be in hand once the change takes effect.
     grip: Grip,
     weapon: usize,
+    left: usize,
     applied: bool,
 }
 
@@ -89,6 +101,8 @@ pub struct Swap {
 #[derive(Clone, Copy, Debug)]
 pub struct AirAttack {
     pub heavy: bool,
+    /// A weapon in each hand, both coming down.
+    pub paired: bool,
     pub moveset: Moveset,
     pub def: AirAttackDef,
     /// Frames since the attack was started.
@@ -178,6 +192,9 @@ pub struct Player {
     pub load: Load,
     /// Index into `WEAPONS` of the right-hand weapon.
     pub weapon: usize,
+    /// And of what the left hand holds: the shield, a torch, another weapon,
+    /// or nothing (`FIST`).
+    pub left: usize,
     pub grip: Grip,
     pub in_combat: bool,
     pub buffer: Option<Req>,
@@ -213,6 +230,7 @@ impl Player {
             guarding: false,
             load: Load::Medium,
             weapon: DEFAULT_WEAPON,
+            left: SHIELD,
             grip: Grip::OneHand,
             in_combat: false,
             buffer: None,
@@ -235,8 +253,33 @@ impl Player {
         match self.grip {
             Grip::OneHand => Moveset { weapon: self.weapon as u8, two_hand: false },
             Grip::TwoHandRight => Moveset { weapon: self.weapon as u8, two_hand: true },
-            Grip::TwoHandLeft => Moveset { weapon: SHIELD as u8, two_hand: true },
+            Grip::TwoHandLeft => Moveset { weapon: self.left as u8, two_hand: true },
         }
+    }
+
+    /// The same class of weapon in each hand, which fights as a pair.
+    pub fn paired(&self) -> bool {
+        self.grip == Grip::OneHand && self.left == self.weapon && self.moveset().has(AttackKind::PairedLight1)
+    }
+
+    /// A shield guards, and so does any weapon held in both hands. Anything
+    /// else in the left hand attacks.
+    pub fn left_button(&self) -> LeftButton {
+        if self.grip == Grip::OneHand && self.left != SHIELD {
+            LeftButton::Attack
+        } else {
+            LeftButton::Guard
+        }
+    }
+
+    /// The first attack this pair of armaments has for the left button: of
+    /// `paired` if they fight as a pair, else of `single` from the left weapon.
+    fn pick_left(&self, paired: &[AttackKind], single: &[AttackKind]) -> Option<ActionId> {
+        if self.paired() {
+            return self.pick(paired);
+        }
+        let moveset = Moveset { weapon: self.left as u8, two_hand: false };
+        single.iter().copied().find(|&kind| moveset.has(kind)).map(|kind| ActionId::Attack(moveset, kind))
     }
 
     /// The first of `kinds` this moveset actually has.
@@ -292,7 +335,13 @@ impl Player {
             let def = attack.def;
             let live = !attack.hit_done && attack.f >= def.from && attack.f < def.to;
             // The airborne swing deals what its landing follow-through does.
-            let kind = if attack.heavy { AttackKind::JumpHeavyLand } else { AttackKind::JumpLightLand };
+            let kind = if attack.paired {
+                AttackKind::PairedJumpLand
+            } else if attack.heavy {
+                AttackKind::JumpHeavyLand
+            } else {
+                AttackKind::JumpLightLand
+            };
             let hit = attack.moveset.attack(kind).and_then(|landing| landing.hit())?;
             let sweep = self.sweep(def.blade, def.from, attack.f)?;
             return live.then_some(ActiveHit {
@@ -383,6 +432,7 @@ impl Player {
             if !swap.applied && swap.f >= def.apply {
                 self.grip = swap.grip;
                 self.weapon = swap.weapon;
+                self.left = swap.left;
                 swap.applied = true;
             }
             self.swap = (swap.f < def.total()).then_some(swap);
@@ -439,6 +489,9 @@ impl Player {
             if inp.heavy.pressed {
                 self.buffer = Some(Req::Heavy);
             }
+            if inp.guard.pressed && self.left_button() == LeftButton::Attack {
+                self.buffer = Some(Req::Left);
+            }
             if inp.light.pressed {
                 self.buffer = Some(Req::Light);
             }
@@ -474,6 +527,8 @@ impl Player {
                         self.start_jump(inp, target);
                         return false;
                     }
+                    Req::Left if self.sprinting => self.pick_left(&[PairedRun, PairedLight1], &[LeftLight1]),
+                    Req::Left => self.pick_left(&[PairedLight1], &[LeftLight1]),
                     Req::Light if self.sprinting => self.pick(&[RunLight, Light1]),
                     Req::Light if self.crouching => self.pick(&[CrouchAttack, RollAttack, Light1]),
                     Req::Light => self.pick(&[Light1]),
@@ -496,22 +551,24 @@ impl Player {
             };
             let change = if inp.two_hand_right {
                 Some(match self.grip {
-                    Grip::TwoHandRight => (back, Grip::OneHand, self.weapon),
-                    _ => (SwapKind::ToTwoHandRight, Grip::TwoHandRight, self.weapon),
+                    Grip::TwoHandRight => (back, Grip::OneHand, self.weapon, self.left),
+                    _ => (SwapKind::ToTwoHandRight, Grip::TwoHandRight, self.weapon, self.left),
                 })
             } else if inp.two_hand_left {
                 Some(match self.grip {
-                    Grip::TwoHandLeft => (back, Grip::OneHand, self.weapon),
-                    _ => (SwapKind::ToTwoHandLeft, Grip::TwoHandLeft, self.weapon),
+                    Grip::TwoHandLeft => (back, Grip::OneHand, self.weapon, self.left),
+                    _ => (SwapKind::ToTwoHandLeft, Grip::TwoHandLeft, self.weapon, self.left),
                 })
             } else if inp.next_weapon {
-                // The shield is the last entry and stays in the left hand.
-                Some((SwapKind::NextWeapon, self.grip, (self.weapon + 1) % SHIELD))
+                // The shield is the last entry and is never a right-hand weapon.
+                Some((SwapKind::NextWeapon, self.grip, (self.weapon + 1) % SHIELD, self.left))
+            } else if inp.next_left && self.grip == Grip::OneHand {
+                Some((SwapKind::NextLeft, self.grip, self.weapon, next_left_hand(self.left)))
             } else {
                 None
             };
-            if let Some((kind, grip, weapon)) = change {
-                self.swap = Some(Swap { kind, f: 0.0, grip, weapon, applied: false });
+            if let Some((kind, grip, weapon, left)) = change {
+                self.swap = Some(Swap { kind, f: 0.0, grip, weapon, left, applied: false });
             }
         }
 
@@ -538,7 +595,7 @@ impl Player {
             return true;
         }
 
-        if inp.guard.held && !self.sprinting {
+        if inp.guard.held && !self.sprinting && self.left_button() == LeftButton::Guard {
             self.guarding = true;
             self.guard_t += DF;
         } else {
@@ -656,6 +713,7 @@ impl Player {
                 >= match req {
                     Req::Light => def.cancel_light,
                     Req::Heavy => def.cancel_heavy,
+                    Req::Left => def.cancel_left,
                     Req::Dodge => def.cancel_dodge,
                     Req::Jump => def.cancel_jump,
                 };
@@ -673,6 +731,7 @@ impl Player {
                         }
                         Req::Light => self.next_light(a.id),
                         Req::Heavy => self.next_heavy(a.id),
+                        Req::Left => self.next_left(a.id),
                     };
                     if let Some(next) = next {
                         self.start(next);
@@ -683,7 +742,7 @@ impl Player {
         }
 
         let regen = a.f >= def.cancel_move;
-        if inp.guard.held && a.f >= def.cancel_guard {
+        if inp.guard.held && a.f >= def.cancel_guard && self.left_button() == LeftButton::Guard {
             self.state = State::Ground;
             self.speed = 0.0;
         } else if let (Some(w), true) = (wish, a.f >= def.cancel_move) {
@@ -761,18 +820,19 @@ impl Player {
         if !allowed || self.air_attack.is_some() || self.stamina <= 0.0 {
             return;
         }
-        let heavy = match self.buffer {
-            Some(Req::Light) => false,
-            Some(Req::Heavy) => true,
+        let (heavy, paired) = match self.buffer {
+            Some(Req::Light) => (false, false),
+            Some(Req::Heavy) => (true, false),
+            Some(Req::Left) if self.paired() => (false, true),
             _ => return,
         };
         self.buffer = None;
         let moveset = self.moveset();
-        let Some(def) = moveset.air(heavy) else {
+        let Some(def) = (if paired { moveset.air_paired() } else { moveset.air(heavy) }) else {
             return;
         };
         self.spend(def.stamina);
-        self.air_attack = Some(AirAttack { heavy, moveset, def, f: 0.0, hit_done: false });
+        self.air_attack = Some(AirAttack { heavy, paired, moveset, def, f: 0.0, hit_done: false });
     }
 
     fn land(&mut self, ground: f32, inp: &Input, jumped: bool, locked: bool) {
@@ -793,7 +853,9 @@ impl Player {
         }
 
         if let Some(attack) = attack {
-            let (landing, short) = if attack.heavy {
+            let (landing, short) = if attack.paired {
+                (AttackKind::PairedJumpLand, AttackKind::PairedJumpLandShort)
+            } else if attack.heavy {
                 (AttackKind::JumpHeavyLand, AttackKind::JumpHeavyLandShort)
             } else {
                 (AttackKind::JumpLightLand, AttackKind::JumpLightLandShort)
@@ -941,6 +1003,19 @@ impl Player {
         }
     }
 
+    fn next_left(&self, from: ActionId) -> Option<ActionId> {
+        use AttackKind::*;
+        let (paired, single) = match from {
+            ActionId::Attack(_, kind) => (kind.next_paired().unwrap_or(PairedLight1), kind.next_left().unwrap_or(LeftLight1)),
+            ActionId::Roll(..) | ActionId::CrouchRoll(..) => (PairedRoll, LeftLight1),
+            ActionId::Backstep => (PairedBackstep, LeftLight1),
+            ActionId::SprintStop => (PairedRun, LeftLight1),
+            _ => (PairedLight1, LeftLight1),
+        };
+        // Past the end of a chain it starts over.
+        self.pick_left(&[paired, PairedLight1], &[single, LeftLight1])
+    }
+
     fn next_heavy(&self, from: ActionId) -> Option<ActionId> {
         use AttackKind::*;
         match from {
@@ -1014,4 +1089,12 @@ impl Player {
         self.swap = None;
         self.state = State::Dead { t: 0.0 };
     }
+}
+
+/// What the left hand takes up next: the shield, then nothing, then a torch,
+/// then each weapon in turn.
+pub fn next_left_hand(left: usize) -> usize {
+    let order: Vec<usize> = [SHIELD, FIST, TORCH].into_iter().chain((0..SHIELD).filter(|&i| i != FIST && i != TORCH)).collect();
+    let at = order.iter().position(|&i| i == left).unwrap_or(0);
+    order[(at + 1) % order.len()]
 }

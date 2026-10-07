@@ -78,12 +78,17 @@ pub fn gather(
         keys.just_released(KeyCode::Space),
     );
     let mut jump = (keys.pressed(KeyCode::KeyF), keys.just_pressed(KeyCode::KeyF), false);
-    let mut guard = (grabbed && !swap && mouse.pressed(MouseButton::Right), false, false);
+    let mut guard = (
+        grabbed && !swap && mouse.pressed(MouseButton::Right),
+        grabbed && !swap && mouse.just_pressed(MouseButton::Right),
+        false,
+    );
     let mut crouch = keys.just_pressed(KeyCode::KeyX);
     let mut lock = keys.just_pressed(KeyCode::KeyQ) || mouse.just_pressed(MouseButton::Middle);
 
     let mut two_hand = (two_hand_right, two_hand_left);
     let mut next_weapon = keys.just_pressed(KeyCode::ArrowRight);
+    let mut next_left = keys.just_pressed(KeyCode::ArrowLeft);
 
     for pad in &gamepads {
         // Triangle / Y is the pad's version of holding E.
@@ -93,6 +98,7 @@ pub fn gather(
             two_hand.1 |= pad.just_pressed(GamepadButton::LeftTrigger);
         }
         next_weapon |= pad.just_pressed(GamepadButton::DPadRight);
+        next_left |= pad.just_pressed(GamepadButton::DPadLeft);
         let stick = pad.left_stick();
         if stick.length() > mv.length() {
             mv = stick;
@@ -126,6 +132,7 @@ pub fn gather(
     inp.two_hand_right |= two_hand.0;
     inp.two_hand_left |= two_hand.1;
     inp.next_weapon |= next_weapon;
+    inp.next_left |= next_left;
 }
 
 /// Sandbox controls that are not part of the game's own bindings.

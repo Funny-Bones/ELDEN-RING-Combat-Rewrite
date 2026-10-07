@@ -137,6 +137,7 @@ fn tick(
     inp.two_hand_right = false;
     inp.two_hand_left = false;
     inp.next_weapon = false;
+    inp.next_left = false;
 }
 
 fn interpolate(sim: Res<Sim>, time: Res<Time<Fixed>>, mut rendered: ResMut<Rendered>) {
