@@ -145,8 +145,8 @@ read. Two inferences worth knowing about:
   there, but they carry no timing of their own.
 
 Not included: weapon skills, parrying, stat scaling, the two-handing damage
-bonus, and being launched into the air by a hit. The rig is primitives, so
-fingers, cloth and faces are not drawn, and animation blending is simpler
+bonus, and being launched into the air by a hit. The rig is primitives: the hands are mittens that fold at the knuckles, with
+a thumb, and cloth and faces are not drawn, and animation blending is simpler
 than the game's.
 
 Sound is the player's alone and not positional. Where the game picks a sound

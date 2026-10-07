@@ -30,6 +30,9 @@ JOINTS = [
     "L_Thigh", "L_Calf", "L_Foot", "L_Toe0",
     "R_Thigh", "R_Calf", "R_Foot", "R_Toe0",
     "R_Weapon", "L_Weapon",
+    # Each hand: the thumb's three bones, the index knuckle (for which way
+    # the palm faces) and the middle finger's three, which bend the mitten.
+    *[side + bone for side in ("L_", "R_") for bone in ("Finger0", "Finger01", "Finger02", "Finger1", "Finger2", "Finger21", "Finger22")],
 ]
 # Joints that also store their X, Y and Z axes.
 ORIENTED = ["Head", "R_Weapon", "L_Weapon"]
@@ -50,7 +53,8 @@ EXTRA = [
 ]
 
 STANCE_IDLE, STANCE_GUARD = 0, 100
-STANCE_LOCOMOTION = (20000, 20001, 20002, 20003, 20100, 20101, 20102, 20103, 20200, 22100)
+# ...and the run's stop in each direction.
+STANCE_LOCOMOTION = (20000, 20001, 20002, 20003, 20100, 20101, 20102, 20103, 20200, 22100, 22101, 22102, 22103)
 
 
 def clip_name(file, anim_id):

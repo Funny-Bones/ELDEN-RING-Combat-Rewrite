@@ -59,8 +59,56 @@ fn stance(p: &Player) -> u8 {
 /// Seconds for an arm layer (guard, two-handed carry) to blend in or out.
 const LAYER_BLEND: f32 = 0.12;
 /// Joints an arm layer takes over, carried on the current torso.
-const LEFT_ARM: [&str; 5] = ["L_Clavicle", "L_UpperArm", "L_Forearm", "L_Hand", "L_Weapon"];
-const RIGHT_ARM: [&str; 5] = ["R_Clavicle", "R_UpperArm", "R_Forearm", "R_Hand", "R_Weapon"];
+const LEFT_ARM: [&str; 12] = [
+    "L_Clavicle", "L_UpperArm", "L_Forearm", "L_Hand", "L_Weapon",
+    "L_Finger0", "L_Finger01", "L_Finger02", "L_Finger1", "L_Finger2", "L_Finger21", "L_Finger22",
+];
+const RIGHT_ARM: [&str; 12] = [
+    "R_Clavicle", "R_UpperArm", "R_Forearm", "R_Hand", "R_Weapon",
+    "R_Finger0", "R_Finger01", "R_Finger02", "R_Finger1", "R_Finger2", "R_Finger21", "R_Finger22",
+];
+
+/// The finger joints of each hand that are drawn.
+const FINGERS: [&str; 7] = ["Finger0", "Finger01", "Finger02", "Finger1", "Finger2", "Finger21", "Finger22"];
+/// How far the shield sits off the hand that holds it, so the arm is behind
+/// the board instead of through it.
+const SHIELD_OUT: f32 = 0.08;
+
+/// A mitten: the four fingers as one slab that folds at each knuckle, and a
+/// thumb. It follows the middle finger's bones and the thumb's.
+const MITTEN_WIDTH: f32 = 0.085;
+const MITTEN_THICK: f32 = 0.032;
+const THUMB_RADIUS: f32 = 0.014;
+/// How far past its last bone a fingertip reaches, as a share of that bone.
+const FINGERTIP: f32 = 0.8;
+
+/// One end of a piece of the hand: a joint, or the tip beyond the last two.
+#[derive(Clone, Copy)]
+enum End {
+    Joint(usize),
+    Tip(usize, usize),
+}
+
+impl End {
+    fn at(self, pose: &[f32]) -> Vec3 {
+        match self {
+            End::Joint(joint) => vec3(pose, joint),
+            End::Tip(before, last) => {
+                let (before, last) = (vec3(pose, before), vec3(pose, last));
+                last + (last - before) * FINGERTIP
+            }
+        }
+    }
+}
+
+/// A flat piece of a hand between two ends, lying across the knuckles.
+struct Slab {
+    entity: Entity,
+    from: End,
+    to: End,
+    /// The index and middle knuckles, which give the direction across the hand.
+    across: (usize, usize),
+}
 
 #[derive(Clone, Copy)]
 enum Stuff {
@@ -111,8 +159,8 @@ const WEAPON_PARTS: &[&[([f32; 3], [f32; 3], Stuff)]] = &[
     &[([0.035, 1.8, 0.035], [0.0, 0.55, 0.0], Stuff::Wood), ([0.62, 0.09, 0.015], [0.3, 1.42, 0.0], Stuff::Steel)],
     // Whip
     &[([0.035, 0.2, 0.035], [0.0, -0.02, 0.0], Stuff::Wood), ([0.02, 2.0, 0.02], [0.0, 1.08, 0.0], Stuff::Wood)],
-    // Fist
-    &[([0.1, 0.12, 0.1], [0.0, 0.03, 0.0], Stuff::Steel)],
+    // Fist: the hand itself
+    &[],
     // Claw
     &[([0.09, 0.08, 0.05], [0.0, 0.0, 0.0], Stuff::Wood), ([0.012, 0.3, 0.012], [-0.03, 0.19, 0.0], Stuff::Steel), ([0.012, 0.3, 0.012], [0.0, 0.19, 0.0], Stuff::Steel), ([0.012, 0.3, 0.012], [0.03, 0.19, 0.0], Stuff::Steel)],
     // Colossal weapon
@@ -153,8 +201,8 @@ const BALLS: &[(&str, f32)] = &[
     ("R_UpperArm", 0.07),
     ("L_Forearm", 0.05),
     ("R_Forearm", 0.05),
-    ("L_Hand", 0.05),
-    ("R_Hand", 0.05),
+    ("L_Hand", 0.042),
+    ("R_Hand", 0.042),
     ("L_Thigh", 0.095),
     ("R_Thigh", 0.095),
     ("L_Calf", 0.075),
@@ -172,6 +220,9 @@ pub struct Rig {
     root: Entity,
     segments: Vec<(Entity, usize, usize)>,
     balls: Vec<(Entity, usize)>,
+    /// The folding pieces of the mittens, and the thumbs' bones.
+    slabs: Vec<Slab>,
+    thumbs: Vec<(Entity, End, End)>,
     head: Entity,
     /// Pivot on the right-hand weapon bone, and the models that can sit on it.
     sword: Entity,
@@ -270,6 +321,29 @@ pub fn setup(
         })
         .collect();
 
+    // Hands: a palm and three folds along the middle finger, and a thumb.
+    let mut slabs = Vec::new();
+    let mut thumbs = Vec::new();
+    for side in ["L_", "R_"] {
+        let joint = |bone: &str| clips.joint(&format!("{side}{bone}"));
+        let (wrist, index) = (joint("Hand"), joint("Finger1"));
+        let (f0, f1, f2) = (joint("Finger2"), joint("Finger21"), joint("Finger22"));
+        let folds = [
+            (End::Joint(wrist), End::Joint(f0)),
+            (End::Joint(f0), End::Joint(f1)),
+            (End::Joint(f1), End::Joint(f2)),
+            (End::Joint(f2), End::Tip(f1, f2)),
+        ];
+        for (from, to) in folds {
+            let entity = part(c, root, Cuboid::new(MITTEN_WIDTH, 1.0, MITTEN_THICK).into(), &armour, Vec3::ZERO);
+            slabs.push(Slab { entity, from, to, across: (index, f0) });
+        }
+        let (t0, t1, t2) = (joint("Finger0"), joint("Finger01"), joint("Finger02"));
+        for (from, to) in [(End::Joint(t0), End::Joint(t1)), (End::Joint(t1), End::Joint(t2)), (End::Joint(t2), End::Tip(t1, t2))] {
+            thumbs.push((part(c, root, Capsule3d::new(THUMB_RADIUS, 1.0).into(), &armour, Vec3::ZERO), from, to));
+        }
+    }
+
     let pivot = |c: &mut Commands| c.spawn((Transform::default(), Visibility::default(), ChildOf(root))).id();
 
     // Local frame: +Y up through the skull, +Z out of the face.
@@ -307,6 +381,7 @@ pub fn setup(
 
     let right_shield = group(c, sword);
     let left_shield = group(c, shield);
+    c.entity(left_shield).insert(Transform::from_xyz(0.0, 0.0, SHIELD_OUT));
     for parent in [left_shield, right_shield] {
         part(c, parent, Cuboid::new(0.56, 0.42, 0.045).into(), &wood, Vec3::ZERO);
         part(c, parent, Cuboid::new(0.14, 0.14, 0.06).into(), &steel, Vec3::ZERO);
@@ -316,6 +391,8 @@ pub fn setup(
         root,
         segments,
         balls,
+        slabs,
+        thumbs,
         head,
         sword,
         weapons,
@@ -368,8 +445,10 @@ fn playing(p: &Player, rig: &mut Rig, clips: &Clips, time: f32, dt: f32, ahead: 
         let options = if p.crouching {
             [clip_name(0, CROUCH_RUN_STOP), clip_name(0, CROUCH_RUN_STOP)]
         } else {
+            // A two-handed stance only ever stops in its own animations: the
+            // base ones would drop a hand off the weapon for a moment.
             let own = if p.grip == Grip::OneHand { 0 } else { stance };
-            [clip_name(own, RUN_STOP + rig.ran_dir), clip_name(0, RUN_STOP + rig.ran_dir)]
+            [clip_name(own, RUN_STOP + rig.ran_dir), clip_name(own, RUN_STOP)]
         };
         rig.rest = options.into_iter().find(|name| clips.get(name).is_some()).map(|name| (name, 0.0));
     }
@@ -629,6 +708,26 @@ pub fn animate(
         pose[toe..toe + 3].copy_from_slice(&new_toe.to_array());
     }
 
+    // The body's animations leave the fingers open: in the game a separate
+    // layer closes them round whatever is held. Here the grip is the one in
+    // the stance's idle, carried along on each hand's weapon bone.
+    if let Some(idle) = clips.get(&clip_name(stance, IDLE)) {
+        clips.sample(idle, 0.0, false, &mut layer);
+        for side in ["L_", "R_"] {
+            let bone = format!("{side}Weapon");
+            let (at, axes) = (clips.joint(&bone), clips.axes(&bone));
+            let frame = |pose: &[f32]| (vec3(pose, at), [vec3(pose, axes), vec3(pose, axes + 3), vec3(pose, axes + 6)]);
+            let (grip_at, grip_axes) = frame(&layer);
+            let (now_at, now_axes) = frame(&pose);
+            for finger in FINGERS {
+                let joint = clips.joint(&format!("{side}{finger}"));
+                let offset = vec3(&layer, joint) - grip_at;
+                let moved = now_at + (0..3).map(|i| now_axes[i] * offset.dot(grip_axes[i])).sum::<Vec3>();
+                pose[joint..joint + 3].copy_from_slice(&moved.to_array());
+            }
+        }
+    }
+
     for &(entity, a, b) in &rig.segments {
         let (a, b) = (vec3(&pose, a), vec3(&pose, b));
         if let Ok(mut transform) = transforms.get_mut(entity) {
@@ -642,6 +741,32 @@ pub fn animate(
     for &(entity, joint) in &rig.balls {
         if let Ok(mut transform) = transforms.get_mut(entity) {
             transform.translation = vec3(&pose, joint);
+        }
+    }
+    for slab in &rig.slabs {
+        let (a, b) = (slab.from.at(&pose), slab.to.at(&pose));
+        let along = b - a;
+        let length = along.length().max(1e-4);
+        // Flat across the knuckles: width runs index-to-middle, squared off against the bone.
+        let across = vec3(&pose, slab.across.0) - vec3(&pose, slab.across.1);
+        if let Ok(mut transform) = transforms.get_mut(slab.entity) {
+            transform.translation = (a + b) / 2.0;
+            let along = along / length;
+            let face = across.cross(along).normalize_or(Vec3::Z);
+            transform.rotation = Quat::from_mat3(&Mat3::from_cols(along.cross(face), along, face));
+            // A little long, so the folds overlap instead of gapping at a bend.
+            transform.scale = Vec3::new(1.0, length * 1.12, 1.0);
+        }
+    }
+    for &(entity, from, to) in &rig.thumbs {
+        let (a, b) = (from.at(&pose), to.at(&pose));
+        let along = b - a;
+        let length = along.length().max(1e-4);
+        if let Ok(mut transform) = transforms.get_mut(entity) {
+            transform.translation = (a + b) / 2.0;
+            transform.rotation = Quat::from_rotation_arc(Vec3::Y, along / length);
+            // The capsule's caps keep their size; only its middle stretches.
+            transform.scale = Vec3::new(1.0, length / (1.0 + 2.0 * THUMB_RADIUS), 1.0);
         }
     }
 
