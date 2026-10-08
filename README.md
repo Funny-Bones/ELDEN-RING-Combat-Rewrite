@@ -197,7 +197,7 @@ command once the files are unpacked.
    community tools:
    - With UXM Selective Unpack, unpack only these from `chr/`:
      `c0000.anibnd.dcx`, `c0000_a00_hi`, `c0000_a00_lo`, `c0000_a00_md`,
-     `c0000_a0x`, `c0000_a1x`, `c0000_a2x`, `c0000_a3x` and `c0000_a4x`
+     `c0000_a0x`, `c0000_a1x`, `c0000_a2x`, `c0000_a3x`, `c0000_a4x` and `c0000_a5x`
      (each `.anibnd.dcx`). Use **Unpack** only, never **Patch**.
    - With WitchyBND, unpack `regulation.bin` into a `regulation-bin` folder.
    - Optional, for sound: also unpack `sd/cs_smain.bnk` and
