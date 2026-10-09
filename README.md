@@ -183,8 +183,14 @@ the dummy hostile, `F1` toggles the i-frame tint, `H` toggles the help overlay,
 
 ## Setup
 
-You need Rust, Python 3.10 or newer, and Windows (the tools load the game's
-own decompression DLL).
+### On Windows
+You simply need Rust, and Python 3.10 or newer.
+
+### On Linux/MacOS
+You need Rust, Python 3.10 or newer and Wine.
+
+Wine is used to interface with the Windows specific dlls provided by your copy of the game.
+____
 
 Generated files are deliberately not in the repository, because they are
 derived from the game: the action table (`src/sim/extracted.rs`), the baked
@@ -210,14 +216,28 @@ command once the files are unpacked.
    | Variable | Points at | Default |
    |---|---|---|
    | `ER_FILES` | the folder from step 1 | `er-files` in the project |
-   | `ER_GAME_DIR` | the game's `Game` folder | the default Steam location |
+   | `ER_GAME_DIR` | the game's `Game` folder | the default Steam location on your OS |
 
-   In PowerShell, for example:
+   In PowerShell (Windows):
 
    ```powershell
    $env:ER_FILES = "C:\path\to\unpacked"
    $env:ER_GAME_DIR = "D:\Steam\steamapps\common\ELDEN RING\Game"
    ```
+
+   In Bash (Linux / macOS):
+
+   ```bash
+   export ER_FILES="/path/to/unpacked"
+   export ER_GAME_DIR="$HOME/.local/share/Steam/steamapps/common/ELDEN RING/Game"
+   ```
+
+   > [!NOTE]
+   > **Linux & macOS users:** Because the game's Oodle decompression library
+   > (`oo2core_6_win64.dll`) is a 64-bit Windows PE binary, the extraction tools
+   > communicate with it using Wine. Ensure `wine` is installed. The script will
+   > automatically look for Windows Python under Wine, or you can point `WINE_PYTHON`
+   > directly to your `python.exe` binary.
 
 3. **Generate the data** (takes about a minute):
 

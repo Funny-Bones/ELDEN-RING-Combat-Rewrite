@@ -21,6 +21,7 @@ import paths
 import tae
 from erfmt import open_bnd
 from skel import fk, qrot
+from pathlib import PureWindowsPath
 
 SRC = paths.er_files()
 OUT = Path(__file__).parent.parent / "src" / "sim" / "extracted.rs"
@@ -265,13 +266,13 @@ class Source:
     def __init__(self):
         bnd = open_bnd(SRC / "chr" / "c0000.anibnd.dcx")
         self.files = bnd
-        self.tae_raw = {Path(n).stem: d for _, n, d in bnd if n.endswith(".tae")}
+        self.tae_raw = {PureWindowsPath(n).stem: d for _, n, d in bnd if n.endswith(".tae")}
         self.tae = {}
         self.hkx = {}
         for pack in PACKS + PACKS_REACTIONS:
             for _, n, d in open_bnd(SRC / "chr" / f"{pack}.anibnd.dcx"):
                 if n.endswith(".hkx"):
-                    self.hkx.setdefault(Path(n).stem, d)
+                    self.hkx.setdefault(PureWindowsPath(n).stem, d)
         self.behavior = param.rows("BehaviorParam_PC")
         self.atk = param.rows("AtkParam_Pc")
         self.weapons = param.rows("EquipParamWeapon")
