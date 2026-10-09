@@ -87,11 +87,12 @@ def main():
     src = Source()
     skeleton = next(d for _, n, d in src.files if n.endswith("Skeleton.hkx"))
     names, parents, rest = hkanim.skeleton(skeleton)
+    from pathlib import PureWindowsPath
     hkx = dict(src.hkx)
     for pack in PACKS:
         for _, n, d in open_bnd(SRC / f"{pack}.anibnd.dcx"):
             if n.endswith(".hkx"):
-                hkx.setdefault(Path(n).stem, d)
+                hkx.setdefault(PureWindowsPath(n).stem, d)
     src.hkx = hkx
 
     joint_index = [names.index(j) for j in JOINTS]

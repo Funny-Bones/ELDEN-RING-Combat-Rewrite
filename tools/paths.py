@@ -8,7 +8,12 @@ import os
 import sys
 from pathlib import Path
 
-DEFAULT_GAME_DIR = r"C:\Program Files (x86)\Steam\steamapps\common\ELDEN RING\Game"
+if sys.platform.startswith("win"):
+    DEFAULT_GAME_DIR = r"C:\Program Files (x86)\Steam\steamapps\common\ELDEN RING\Game"
+elif sys.platform == "darwin":
+    DEFAULT_GAME_DIR = os.path.expanduser("~/Library/Application Support/Steam/steamapps/common/ELDEN RING/Game")
+else:
+    DEFAULT_GAME_DIR = os.path.expanduser("~/.local/share/Steam/steamapps/common/ELDEN RING/Game")
 
 
 def _folder(variable, default, must_contain):
